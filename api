@@ -1,1 +1,30 @@
+from http.server import BaseHTTPRequestHandler
+import os, json, html, requests, random, textwrap, unicodedata
+from datetime import datetime, timezone, timedelta
 
+# ==========================================
+# KONFIGURASI (diambil dari Environment Variables Vercel)
+# ==========================================
+USER_ID = os.environ.get("HABITICA_USER_ID")
+API_TOKEN = os.environ.get("HABITICA_API_TOKEN")
+UPSTASH_URL = os.environ.get("UPSTASH_REDIS_REST_URL")
+UPSTASH_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN")
+DB_KEY = "habitica_stats_db"  # nama "file" kita di Upstash
+
+WIB = timezone(timedelta(hours=7))
+headers = {"x-api-user": USER_ID, "x-api-key": API_TOKEN, "x-client": f"{USER_ID}-RPGStatsCard"}
+upstash_headers = {"Authorization": f"Bearer {UPSTASH_TOKEN}"}
+
+
+# ==========================================
+# GANTI database.json -> UPSTASH (REST API)
+# ==========================================
+def load_db():
+    default = {
+        "current_cycle_id": "", "classes_used": [], "peak_gold": 0.0, "total_mana_spent": 0.0,
+        "last_mana": None, "buffs_cast": 0, "bosses_slain": 0, "all_time_damage": 0.0,
+        "weekly_damage": 0.0, "peak_daily_damage": 0.0, "current_day_damage": 0.0,
+        "damage_day_date": "", "last_damage_up": 0.0, "weekly_top_dailies": {},
+        "last_daily_date": "", "daily_habit_baseline": 0,
+        "last_quest_key": None, "last_quest_is_boss": False,
+        "last_habit_counters": {}, "weekly_habit_clicks": {}, "weekly_habit_neg": {},
