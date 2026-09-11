@@ -152,7 +152,7 @@ async function generateSVG() {
   const todayStr = fmtDateStr(now);
 
   const adjusted = new Date(now.getTime() - 6 * 3600 * 1000);
-  const daysSinceSunday = adjusted.getUTCDay(); // JS: Minggu=0...Sabtu=6 (langsung cocok, tanpa konversi)
+  const daysSinceSunday = adjusted.getUTCDay(); 
   const weekStartDate = dateOnly(new Date(adjusted.getTime() - daysSinceSunday * 86400000));
   const cycle = fmtDateStr(weekStartDate);
 
@@ -373,8 +373,6 @@ async function generateSVG() {
   const avgDmg = db.weekly_damage / days;
 
   let quoteText = 'Consistency is not perfection, it is simply refusing to give up.';
-  // (Kalau mau pakai quote.txt custom, taruh isinya langsung di variabel di atas -
-  //  fungsi serverless tidak selalu bisa baca file tambahan dengan stabil.)
 
   // ---- Update bio Habitica ----
   if (PUBLIC_STATS_URL) {
@@ -384,35 +382,7 @@ async function generateSVG() {
     const dailyBioLines = topD.length
       ? topD.map((it, i) => `${i + 1}. ${it.text} (${it.count}x)`).join('\n')
       : '-';
-    const bio = `### PERFORMANCE MATRIX
-
-![](${PUBLIC_STATS_URL})
-
-\u26a1 **Streak:** ${streak} hari \u2022 \ud83d\udcb0 **Peak Gold:** ${fmt(db.peak_gold)} G \u2022 \ud83d\udde1\ufe0f **Peak Dmg/Hari:** ${fmt(db.peak_daily_damage)}
-
----
-\ud83d\udd34 **COMBAT & EXPEDITION**
-- Total Damage (All-Time): **${fmt(db.all_time_damage)}**
-- Weekly Damage: **${fmt(db.weekly_damage)}**
-- Bosses Slain: **${db.bosses_slain}**
-- Buffs Cast: **${db.buffs_cast}** \u2022 Mana Spent: **${fmt(db.total_mana_spent)} MP**
-
----
-\ud83d\udd35 **PRODUCTIVITY MATRIX**
-- Dailies Hari Ini: **${done.length}/${due.length} (${pct}%)**
-- Habit Mastery: **${hratio}% Positive**
-- Selesai Hari Ini: **${hToday} Habits \u2022 ${done.length} Dailies \u2022 ${tToday} To-Dos**
-
----
-\ud83d\udfe0 **TOP 5 HABITS (MINGGUAN)**
-${habitBioLines}
-
-\ud83d\udfe2 **TOP 5 DAILIES (MINGGUAN)**
-${dailyBioLines}
-
----
-> "${quoteText}"
-`;
+    const bio = `### PERFORMANCE MATRIX\n\n![](${PUBLIC_STATS_URL})\n\n\u26a1 **Streak:** ${streak} hari \u2022 \ud83d\udcb0 **Peak Gold:** ${fmt(db.peak_gold)} G \u2022 \ud83d\udde1\ufe0f **Peak Dmg/Hari:** ${fmt(db.peak_daily_damage)}\n\n---\n\ud83d\udd34 **COMBAT & EXPEDITION**\n- Total Damage (All-Time): **${fmt(db.all_time_damage)}**\n- Weekly Damage: **${fmt(db.weekly_damage)}**\n- Bosses Slain: **${db.bosses_slain}**\n- Buffs Cast: **${db.buffs_cast}** \u2022 Mana Spent: **${fmt(db.total_mana_spent)} MP**\n\n---\n\ud83d\udd35 **PRODUCTIVITY MATRIX**\n- Dailies Hari Ini: **${done.length}/${due.length} (${pct}%)**\n- Habit Mastery: **${hratio}% Positive**\n- Selesai Hari Ini: **${hToday} Habits \u2022 ${done.length} Dailies \u2022 ${tToday} To-Dos**\n\n---\n\ud83d\udfe0 **TOP 5 HABITS (MINGGUAN)**\n${habitBioLines}\n\n\ud83d\udfe2 **TOP 5 DAILIES (MINGGUAN)**\n${dailyBioLines}\n\n---\n> "${quoteText}"\n`;
     try {
       await fetch('https://habitica.com/api/v3/user', {
         method: 'PUT',
@@ -424,9 +394,6 @@ ${dailyBioLines}
     }
   }
 
-  // ==========================================
-  // LOGO, IKON, HUTAN, DLL - sama seperti versi Python
-  // ==========================================
   const logoSvg = `
     <rect x="14" y="20" width="100" height="100" rx="22" fill="url(#logoBgGlow)" stroke="url(#goldRing)" stroke-width="3"/>
     <rect x="21" y="27" width="86" height="86" rx="17" fill="none" stroke="#f5d78e" stroke-width="1" opacity="0.35"/>
@@ -451,12 +418,8 @@ ${dailyBioLines}
       return (s - 1) / 2147483646;
     };
   }
-  function randInt(rnd, min, max) {
-    return Math.floor(rnd() * (max - min + 1)) + min;
-  }
-  function randFloat(rnd, min, max) {
-    return rnd() * (max - min) + min;
-  }
+  function randInt(rnd, min, max) { return Math.floor(rnd() * (max - min + 1)) + min; }
+  function randFloat(rnd, min, max) { return rnd() * (max - min) + min; }
 
   let rnd = seededRandom(42);
   let pineTrees = '';
@@ -509,7 +472,7 @@ ${dailyBioLines}
   const icSw = '<path d="M4 20L20 4M8 20L20 8" stroke="#fb7185" stroke-width="2.5" stroke-linecap="round"/>';
   const icFr = '<path d="M12 22C12 22 5 15 5 10C5 6 8 2 12 2C12 2 10 6 10 10C10 12 12 14 12 14C12 14 15 11 15 8C17 10 19 13 19 16C19 19.5 16 22 12 22Z" fill="#f59e0b"/>';
   const icTr = '<path d="M4 6H20M5 6V11C5 14.8 8.1 18 12 18C15.9 18 19 14.8 19 11V6M8 18V22M16 18V22M6 22H18" stroke="#facc15" stroke-width="2" stroke-linecap="round" fill="none"/>';
-  const icGd = '<circle cx="12" cy="12" r="8" fill="#f59e0b"/><text x="12" y="16" font-size="11" fill="#141724" text-anchor="middle" font-weight="bold" font-family="sans-serif">G</text>';
+  const icGd = '<circle cx="12" cy="12" r="8" fill="#f59e0b"/><text x="12" y="16" font-size="11" fill="#141724" text-anchor="middle" font-weight="bold" font-family="Roboto">G</text>';
   const icCh = '<path d="M18 20V10M12 20V4M6 20V14" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round"/>';
   const icSp = '<path d="M12 2L14 9L21 11L14 13L12 20L10 13L3 11L10 9Z" fill="#b45309"/>';
   const icCk = '<path d="M5 12L10 17L19 7" stroke="#059669" stroke-width="2.5" stroke-linecap="round" fill="none"/>';
@@ -592,11 +555,11 @@ ${dailyBioLines}
     </filter>
   </defs>
   <style>
-    .t { font-family: sans-serif; font-weight: 900; fill: #fff; }
-    .s { font-family: sans-serif; font-size: 11.5px; fill: #94a3b8; }
-    .l { font-family: sans-serif; font-size: 9.5px; fill: #94a3b8; font-weight: 600; letter-spacing: 0.5px; }
-    .v { font-family: sans-serif; font-size: 14px; font-weight: bold; fill: #f8fafc; }
-    .list { font-family: sans-serif; font-size: 11.5px; fill: #cbd5e1; }
+    .t { font-family: Roboto, sans-serif; font-weight: 900; fill: #fff; }
+    .s { font-family: Roboto, sans-serif; font-size: 11.5px; fill: #94a3b8; }
+    .l { font-family: Roboto, sans-serif; font-size: 9.5px; fill: #94a3b8; font-weight: 600; letter-spacing: 0.5px; }
+    .v { font-family: Roboto, sans-serif; font-size: 14px; font-weight: bold; fill: #f8fafc; }
+    .list { font-family: Roboto, sans-serif; font-size: 11.5px; fill: #cbd5e1; }
   </style>
   <g clip-path="url(#rc)">
     <rect width="${canvasW}" height="${canvasH}" fill="url(#g1)"/>
@@ -613,7 +576,7 @@ ${dailyBioLines}
 
     ${logoSvg}
 
-    <text x="128" y="38" font-family="sans-serif" font-size="9" font-weight="700" letter-spacing="1.5" fill="#d4a72c" opacity="0.85">PLAYER IDENTIFICATION</text>
+    <text x="128" y="38" font-family="Roboto, sans-serif" font-size="9" font-weight="700" letter-spacing="1.5" fill="#d4a72c" opacity="0.85">PLAYER IDENTIFICATION</text>
     <text x="128" y="70" class="t" font-size="22">${svgName}</text>
     <text x="128" y="90" class="s">Level ${lvl} \u2022 <tspan fill="${cfg.sec}">${cfg.n}</tspan></text>
 
@@ -622,7 +585,7 @@ ${dailyBioLines}
     <g transform="translate(184, 100) scale(0.75)" opacity="${db.classes_used.includes('rogue') ? '1.0' : '0.2'}">${icClassRog}</g>
     <g transform="translate(212, 100) scale(0.75)" opacity="${db.classes_used.includes('healer') ? '1.0' : '0.2'}">${icClassHea}</g>
 
-    <text x="18" y="162" font-family="sans-serif" font-size="11" fill="#fb7185" font-weight="bold">COMBAT &amp; EXPEDITION LOG</text>
+    <text x="18" y="162" font-family="Roboto, sans-serif" font-size="11" fill="#fb7185" font-weight="bold">COMBAT &amp; EXPEDITION LOG</text>
     <rect x="16" y="172" width="208" height="46" rx="8" fill="url(#gC)" stroke="#4c1d2c"/><text x="26" y="188" class="l">TOTAL DMG</text><g transform="translate(26, 193) scale(0.8)">${icSw}</g><text x="50" y="207" class="v">${fmt(db.all_time_damage)}</text>
     <rect x="236" y="172" width="208" height="46" rx="8" fill="url(#gC)" stroke="#4c1d2c"/><text x="246" y="188" class="l">WEEKLY DMG</text><g transform="translate(246, 193) scale(0.8)">${icSw}</g><text x="270" y="207" class="v">${fmt(db.weekly_damage)}</text>
     <rect x="16" y="226" width="208" height="46" rx="8" fill="url(#gC)" stroke="#4c1d2c"/><text x="26" y="242" class="l">DAILY AVG DMG</text><g transform="translate(26, 247) scale(0.8)">${icCh}</g><text x="50" y="261" class="v">${fmt(avgDmg)}/day</text>
@@ -633,7 +596,7 @@ ${dailyBioLines}
     <g transform="translate(26, 344) scale(0.7)">${icSparkle}</g><text x="42" y="357" class="s">Buffs: <tspan class="v">${db.buffs_cast}</tspan> Casts</text>
     <g transform="translate(190, 344) scale(0.7)">${icDrop}</g><text x="206" y="357" class="s">Mana Spent: <tspan class="v">${fmt(db.total_mana_spent)} MP</tspan></text>
 
-    <text x="18" y="404" font-family="sans-serif" font-size="11" fill="#60a5fa" font-weight="bold">PRODUCTIVITY &amp; DISCIPLINE MATRIX</text>
+    <text x="18" y="404" font-family="Roboto, sans-serif" font-size="11" fill="#60a5fa" font-weight="bold">PRODUCTIVITY &amp; DISCIPLINE MATRIX</text>
     <text x="18" y="424" class="s">Dailies Today: <tspan class="v">${done.length}/${due.length} (${pct}%)</tspan></text>
     <rect x="16" y="432" width="428" height="11" rx="5.5" fill="#151b2e"/><rect x="16" y="432" width="${Math.round(428 * (pct / 100))}" height="11" rx="5.5" fill="url(#gBar)"/>
     <rect x="16" y="451" width="428" height="34" rx="7" fill="url(#gP)" stroke="#1e293b"/>
@@ -655,27 +618,27 @@ ${dailyBioLines}
     <rect x="16" y="601" width="208" height="46" rx="8" fill="url(#gP)" stroke="#1e293b"/><text x="26" y="617" class="l">BOUNTY BOARD</text><g transform="translate(26, 622) scale(0.8)">${icTg}</g><text x="50" y="636" class="v">${tActive} Open / ${tCleared} Done</text>
     <rect x="236" y="601" width="208" height="46" rx="8" fill="url(#gP)" stroke="#1e293b"/><text x="246" y="617" class="l">DISCIPLINE FLAME</text><g transform="translate(246, 622) scale(0.8)">${icFr}</g><text x="270" y="636" class="v">${streak} Days Streak</text>
 
-    <rect x="16" y="655" width="428" height="130" rx="8" fill="url(#gT5H)" stroke="#06b6d4"/><text x="28" y="675" font-family="sans-serif" font-size="11" font-weight="bold" fill="#22d3ee">TOP 5 HABITS (HARI INI)</text>${h5dailyStr}
-    <rect x="16" y="793" width="428" height="130" rx="8" fill="url(#gT5V)" stroke="#a855f7"/><text x="28" y="813" font-family="sans-serif" font-size="11" font-weight="bold" fill="#c084fc">TOP 5 HABITS (3 HARI TERAKHIR)</text>${h53dayStr}
+    <rect x="16" y="655" width="428" height="130" rx="8" fill="url(#gT5H)" stroke="#06b6d4"/><text x="28" y="675" font-family="Roboto, sans-serif" font-size="11" font-weight="bold" fill="#22d3ee">TOP 5 HABITS (HARI INI)</text>${h5dailyStr}
+    <rect x="16" y="793" width="428" height="130" rx="8" fill="url(#gT5V)" stroke="#a855f7"/><text x="28" y="813" font-family="Roboto, sans-serif" font-size="11" font-weight="bold" fill="#c084fc">TOP 5 HABITS (3 HARI TERAKHIR)</text>${h53dayStr}
 
-    <rect x="16" y="931" width="428" height="92" rx="8" fill="url(#gNeg)" stroke="#dc2626"/><text x="28" y="951" font-family="sans-serif" font-size="11" font-weight="bold" fill="#f87171">TOP 3 HABITS NEGATIF (MINGGUAN)</text>${hnegStr}
+    <rect x="16" y="931" width="428" height="92" rx="8" fill="url(#gNeg)" stroke="#dc2626"/><text x="28" y="951" font-family="Roboto, sans-serif" font-size="11" font-weight="bold" fill="#f87171">TOP 3 HABITS NEGATIF (MINGGUAN)</text>${hnegStr}
 
-    <rect x="16" y="1031" width="208" height="140" rx="8" fill="url(#gH)" stroke="#f59e0b"/><text x="28" y="1051" font-family="sans-serif" font-size="10.5" font-weight="bold" fill="#fbbf24">TOP 5 HABITS (MINGGUAN)</text>${hStr}
-    <rect x="236" y="1031" width="208" height="140" rx="8" fill="url(#gD)" stroke="#10b981"/><text x="248" y="1051" font-family="sans-serif" font-size="10.5" font-weight="bold" fill="#34d399">TOP 5 DAILIES (MINGGUAN)</text>${dStr}
+    <rect x="16" y="1031" width="208" height="140" rx="8" fill="url(#gH)" stroke="#f59e0b"/><text x="28" y="1051" font-family="Roboto, sans-serif" font-size="10.5" font-weight="bold" fill="#fbbf24">TOP 5 HABITS (MINGGUAN)</text>${hStr}
+    <rect x="236" y="1031" width="208" height="140" rx="8" fill="url(#gD)" stroke="#10b981"/><text x="248" y="1051" font-family="Roboto, sans-serif" font-size="10.5" font-weight="bold" fill="#34d399">TOP 5 DAILIES (MINGGUAN)</text>${dStr}
 
-    <rect x="16" y="1179" width="208" height="140" rx="8" fill="url(#gT5M)" stroke="#6366f1"/><text x="28" y="1199" font-family="sans-serif" font-size="10.5" font-weight="bold" fill="#818cf8">TOP 5 HABITS (BULANAN)</text>${hmonthStr}
+    <rect x="16" y="1179" width="208" height="140" rx="8" fill="url(#gT5M)" stroke="#6366f1"/><text x="28" y="1199" font-family="Roboto, sans-serif" font-size="10.5" font-weight="bold" fill="#818cf8">TOP 5 HABITS (BULANAN)</text>${hmonthStr}
 
     <rect x="236" y="1179" width="208" height="140" rx="8" fill="url(#gP)" stroke="#1e293b"/>
-    <text x="248" y="1199" font-family="sans-serif" font-size="10.5" font-weight="bold" fill="#cbd5e1" letter-spacing="0.5">IDLE HABITS</text>
-    <g transform="translate(248, 1212) scale(0.85)">${icMoon}</g><text x="270" y="1227" font-family="sans-serif" font-size="11.5px" fill="#cbd5e1">Yesterday</text>
-    <text x="270" y="1244" class="v">${idleYesterdayCount}<tspan font-family="sans-serif" font-size="11.5px" fill="#cbd5e1"> / ${totalHabitsCount} habits</tspan></text>
+    <text x="248" y="1199" font-family="Roboto, sans-serif" font-size="10.5" font-weight="bold" fill="#cbd5e1" letter-spacing="0.5">IDLE HABITS</text>
+    <g transform="translate(248, 1212) scale(0.85)">${icMoon}</g><text x="270" y="1227" font-family="Roboto, sans-serif" font-size="11.5px" fill="#cbd5e1">Yesterday</text>
+    <text x="270" y="1244" class="v">${idleYesterdayCount}<tspan font-family="Roboto, sans-serif" font-size="11.5px" fill="#cbd5e1"> / ${totalHabitsCount} habits</tspan></text>
     <line x1="246" y1="1256" x2="442" y2="1256" stroke="#334155" stroke-width="1"/>
-    <g transform="translate(248, 1263) scale(0.85)">${icCalendar}</g><text x="270" y="1278" font-family="sans-serif" font-size="11.5px" fill="#cbd5e1">This Week</text>
-    <text x="270" y="1295" class="v">${habitsUntouchedWeek}<tspan font-family="sans-serif" font-size="11.5px" fill="#cbd5e1"> (${idleWeekPct}%)</tspan></text>
+    <g transform="translate(248, 1263) scale(0.85)">${icCalendar}</g><text x="270" y="1278" font-family="Roboto, sans-serif" font-size="11.5px" fill="#cbd5e1">This Week</text>
+    <text x="270" y="1295" class="v">${habitsUntouchedWeek}<tspan font-family="Roboto, sans-serif" font-size="11.5px" fill="#cbd5e1"> (${idleWeekPct}%)</tspan></text>
 
     <rect x="16" y="${QUOTE_Y}" width="428" height="${quoteBoxH}" rx="9" fill="url(#gI)" stroke="url(#gB)"/>
-    <text x="28" y="${QUOTE_Y + 23}" font-family="sans-serif" font-size="11" font-weight="bold" fill="#facc15">SCROLL OF INSIGHT</text>
-    <text x="28" y="${QUOTE_Y + 45}" font-family="Georgia, serif" font-size="12" font-style="italic" fill="#e2e8f0">${quoteTspans}</text>
+    <text x="28" y="${QUOTE_Y + 23}" font-family="Roboto, sans-serif" font-size="11" font-weight="bold" fill="#facc15">SCROLL OF INSIGHT</text>
+    <text x="28" y="${QUOTE_Y + 45}" font-family="Roboto, sans-serif" font-size="12" fill="#e2e8f0">${quoteTspans}</text>
   </g>
   <rect width="${canvasW}" height="${canvasH}" rx="18" fill="none" stroke="url(#gB)" stroke-width="3.5"/>
 </svg>`;
@@ -685,18 +648,37 @@ ${dailyBioLines}
 }
 
 // ==========================================
+// MENGUNDUH FONT (ROBOTO) SECARA DINAMIS
+// ==========================================
+let fontRegBuffer = null;
+let fontBoldBuffer = null;
+
+async function getFonts() {
+  if (!fontRegBuffer) {
+    const resReg = await fetch('https://raw.githubusercontent.com/googlefonts/roboto/main/src/hinted/Roboto-Regular.ttf');
+    fontRegBuffer = Buffer.from(await resReg.arrayBuffer());
+  }
+  if (!fontBoldBuffer) {
+    const resBold = await fetch('https://raw.githubusercontent.com/googlefonts/roboto/main/src/hinted/Roboto-Bold.ttf');
+    fontBoldBuffer = Buffer.from(await resBold.arrayBuffer());
+  }
+  return [fontRegBuffer, fontBoldBuffer];
+}
+
+// ==========================================
 // HANDLER VERCEL (Node.js) - render SVG -> PNG pakai resvg-js
 // ==========================================
 module.exports = async (req, res) => {
   try {
     const svg = await generateSVG();
+    const fontBuffers = await getFonts();
     
-    // Konfigurasi tambahan agar font sistem dimuat
+    // Konfigurasi dengan suntikan font dari Google
     const resvg = new Resvg(svg, {
       fitTo: { mode: 'original' },
       font: {
-        loadSystemFonts: true,
-        defaultFontFamily: 'sans-serif'
+        fontBuffers: fontBuffers,
+        defaultFontFamily: 'Roboto'
       }
     });
 
@@ -710,4 +692,4 @@ module.exports = async (req, res) => {
   }
 };
 
-module.exports.generateSVG = generateSVG; // diekspor juga supaya bisa dites terpisah
+module.exports.generateSVG = generateSVG; 
