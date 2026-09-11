@@ -1,4 +1,6 @@
 const { Resvg } = require('@resvg/resvg-js');
+const fs = require('fs');
+const path = require('path');
 
 const USER_ID = process.env.HABITICA_USER_ID;
 const API_TOKEN = process.env.HABITICA_API_TOKEN;
@@ -32,7 +34,11 @@ function fmtDateStr(d) {
 
 // ==========================================
 // GANTI database.json -> UPSTASH (REST API)
+// Sekarang error ditangkap ke variabel supaya bisa dicek lewat header response
 // ==========================================
+let dbLoadError = null;
+let dbSaveError = null;
+
 function defaultDB() {
   return {
     current_cycle_id: '', classes_used: [], peak_gold: 0, total_mana_spent: 0,
@@ -57,27 +63,41 @@ async function loadDB() {
       headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
     });
     const data = await r.json();
-    if (data.result) {
+    if (data.error) {
+      dbLoadError = `Upstash error: ${data.error}`;
+    } else if (data.result) {
       Object.assign(db, JSON.parse(data.result));
+      dbLoadError = 'ok (data ditemukan)';
+    } else {
+      dbLoadError = 'ok (belum ada data tersimpan / run pertama)';
     }
   } catch (e) {
-    console.log('Upstash load notice:', e.message);
+    dbLoadError = `exception: ${e.message}`;
   }
   return db;
 }
 
 async function saveDB(db) {
   try {
-    await fetch(`${UPSTASH_URL}/set/${DB_KEY}`, {
+    const r = await fetch(`${UPSTASH_URL}/set/${DB_KEY}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
       body: JSON.stringify(db),
     });
+    const data = await r.json();
+    if (data.error) {
+      dbSaveError = `Upstash error: ${data.error}`;
+    } else {
+      dbSaveError = 'ok';
+    }
   } catch (e) {
-    console.log('Upstash save notice:', e.message);
+    dbSaveError = `exception: ${e.message}`;
   }
 }
 
+// ==========================================
+// UTILITAS
+// ==========================================
 function bump(store, tid, text, amount) {
   const entry = store[tid] || { text, count: 0 };
   entry.text = text;
@@ -382,7 +402,7 @@ async function generateSVG() {
     const dailyBioLines = topD.length
       ? topD.map((it, i) => `${i + 1}. ${it.text} (${it.count}x)`).join('\n')
       : '-';
-    const bio = `### PERFORMANCE MATRIX\n\n![](${PUBLIC_STATS_URL})\n\n\u26a1 **Streak:** ${streak} hari \u2022 \ud83d\udcb0 **Peak Gold:** ${fmt(db.peak_gold)} G \u2022 \ud83d\udde1\ufe0f **Peak Dmg/Hari:** ${fmt(db.peak_daily_damage)}\n\n---\n\ud83d\udd34 **COMBAT & EXPEDITION**\n- Total Damage (All-Time): **${fmt(db.all_time_damage)}**\n- Weekly Damage: **${fmt(db.weekly_damage)}**\n- Bosses Slain: **${db.bosses_slain}**\n- Buffs Cast: **${db.buffs_cast}** \u2022 Mana Spent: **${fmt(db.total_mana_spent)} MP**\n\n---\n\ud83d\udd35 **PRODUCTIVITY MATRIX**\n- Dailies Hari Ini: **${done.length}/${due.length} (${pct}%)**\n- Habit Mastery: **${hratio}% Positive**\n- Selesai Hari Ini: **${hToday} Habits \u2022 ${done.length} Dailies \u2022 ${tToday} To-Dos**\n\n---\n\ud83d\udfe0 **TOP 5 HABITS (MINGGUAN)**\n${habitBioLines}\n\n\ud83d\udfe2 **TOP 5 DAILIES (MINGGUAN)**\n${dailyBioLines}\n\n---\n> "${quoteText}"\n`;
+    const bio = `### PERFORMANCE MATRIX\n\n![](${PUBLIC_STATS_URL}?v=3)\n\n\u26a1 **Streak:** ${streak} hari \u2022 \ud83d\udcb0 **Peak Gold:** ${fmt(db.peak_gold)} G \u2022 \ud83d\udde1\ufe0f **Peak Dmg/Hari:** ${fmt(db.peak_daily_damage)}\n\n---\n\ud83d\udd34 **COMBAT & EXPEDITION**\n- Total Damage (All-Time): **${fmt(db.all_time_damage)}**\n- Weekly Damage: **${fmt(db.weekly_damage)}**\n- Bosses Slain: **${db.bosses_slain}**\n- Buffs Cast: **${db.buffs_cast}** \u2022 Mana Spent: **${fmt(db.total_mana_spent)} MP**\n\n---\n\ud83d\udd35 **PRODUCTIVITY MATRIX**\n- Dailies Hari Ini: **${done.length}/${due.length} (${pct}%)**\n- Habit Mastery: **${hratio}% Positive**\n- Selesai Hari Ini: **${hToday} Habits \u2022 ${done.length} Dailies \u2022 ${tToday} To-Dos**\n\n---\n\ud83d\udfe0 **TOP 5 HABITS (MINGGUAN)**\n${habitBioLines}\n\n\ud83d\udfe2 **TOP 5 DAILIES (MINGGUAN)**\n${dailyBioLines}\n\n---\n> "${quoteText}"\n`;
     try {
       await fetch('https://habitica.com/api/v3/user', {
         method: 'PUT',
@@ -418,8 +438,12 @@ async function generateSVG() {
       return (s - 1) / 2147483646;
     };
   }
-  function randInt(rnd, min, max) { return Math.floor(rnd() * (max - min + 1)) + min; }
-  function randFloat(rnd, min, max) { return rnd() * (max - min) + min; }
+  function randInt(rnd, min, max) {
+    return Math.floor(rnd() * (max - min + 1)) + min;
+  }
+  function randFloat(rnd, min, max) {
+    return rnd() * (max - min) + min;
+  }
 
   let rnd = seededRandom(42);
   let pineTrees = '';
@@ -564,7 +588,6 @@ async function generateSVG() {
   <g clip-path="url(#rc)">
     <rect width="${canvasW}" height="${canvasH}" fill="url(#g1)"/>
     ${bgPattern}
-
     <rect x="0" y="0" width="460" height="140" fill="#0f172a"/>
     ${nightStars}
     ${groundBand}
@@ -648,48 +671,51 @@ async function generateSVG() {
 }
 
 // ==========================================
-// MENGUNDUH FONT (ROBOTO) SECARA DINAMIS
+// FONT: dibaca dari file lokal (bundled di repo)
 // ==========================================
-let fontRegBuffer = null;
-let fontBoldBuffer = null;
+let fontBuffersCache = null;
+let fontLoadError = null;
 
-async function getFonts() {
-  if (!fontRegBuffer) {
-    const resReg = await fetch('https://raw.githubusercontent.com/googlefonts/roboto/main/src/hinted/Roboto-Regular.ttf');
-    fontRegBuffer = Buffer.from(await resReg.arrayBuffer());
+function getFontsSync() {
+  if (fontBuffersCache) return fontBuffersCache;
+  try {
+    const reg = fs.readFileSync(path.join(__dirname, 'Roboto-Regular.ttf'));
+    const bold = fs.readFileSync(path.join(__dirname, 'Roboto-Bold.ttf'));
+    fontBuffersCache = [reg, bold];
+    fontLoadError = 'ok';
+  } catch (e) {
+    fontLoadError = `font missing: ${e.message}`;
+    fontBuffersCache = [];
   }
-  if (!fontBoldBuffer) {
-    const resBold = await fetch('https://raw.githubusercontent.com/googlefonts/roboto/main/src/hinted/Roboto-Bold.ttf');
-    fontBoldBuffer = Buffer.from(await resBold.arrayBuffer());
-  }
-  return [fontRegBuffer, fontBoldBuffer];
+  return fontBuffersCache;
 }
 
 // ==========================================
-// HANDLER VERCEL (Node.js) - render SVG -> PNG pakai resvg-js
+// HANDLER VERCEL (Node.js)
 // ==========================================
 module.exports = async (req, res) => {
   try {
     const svg = await generateSVG();
-    const fontBuffers = await getFonts();
-    
-    // Konfigurasi dengan suntikan font dari Google
-    const resvg = new Resvg(svg, {
-      fitTo: { mode: 'original' },
-      font: {
-        fontBuffers: fontBuffers,
-        defaultFontFamily: 'Roboto'
-      }
-    });
+    const fontBuffers = getFontsSync();
 
+    const resvgOpts = { fitTo: { mode: 'original' } };
+    if (fontBuffers.length) {
+      resvgOpts.font = { fontBuffers, defaultFontFamily: 'Roboto' };
+    }
+    const resvg = new Resvg(svg, resvgOpts);
     const pngData = resvg.render();
     const pngBuffer = pngData.asPng();
+
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Cache-Control', 'no-store, max-age=0');
+    // Header debug - buka DevTools > Network > klik request ini > Headers untuk lihat ini
+    res.setHeader('X-Debug-DB-Load', dbLoadError || 'unknown');
+    res.setHeader('X-Debug-DB-Save', dbSaveError || 'unknown');
+    res.setHeader('X-Debug-Font', fontLoadError || 'unknown');
     res.status(200).send(pngBuffer);
   } catch (e) {
     res.status(500).send(`Error generating stats: ${e.message}\n${e.stack}`);
   }
 };
 
-module.exports.generateSVG = generateSVG; 
+module.exports.generateSVG = generateSVG;
