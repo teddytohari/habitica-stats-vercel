@@ -690,7 +690,16 @@ ${dailyBioLines}
 module.exports = async (req, res) => {
   try {
     const svg = await generateSVG();
-    const resvg = new Resvg(svg, { fitTo: { mode: 'original' } });
+    
+    // Konfigurasi tambahan agar font sistem dimuat
+    const resvg = new Resvg(svg, {
+      fitTo: { mode: 'original' },
+      font: {
+        loadSystemFonts: true,
+        defaultFontFamily: 'sans-serif'
+      }
+    });
+
     const pngData = resvg.render();
     const pngBuffer = pngData.asPng();
     res.setHeader('Content-Type', 'image/png');
