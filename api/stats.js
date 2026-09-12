@@ -15,15 +15,9 @@ const habiticaHeaders = {
   'x-client': `${USER_ID}-RPGStatsCard`,
 };
 
-// ==========================================
-// Variabel Debugging Upstash
-// ==========================================
 let debugDbLoad = 'pending';
 let debugDbSave = 'pending';
 
-// ==========================================
-// Tanggal WIB (UTC+7)
-// ==========================================
 const WIB_MS = 7 * 3600 * 1000;
 function nowWIB() { return new Date(Date.now() + WIB_MS); }
 function dateOnly(d) { return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())); }
@@ -34,9 +28,6 @@ function fmtDateStr(d) {
   return `${y}-${m}-${day}`;
 }
 
-// ==========================================
-// DATABASE UPSTASH HANDLERS
-// ==========================================
 function defaultDB() {
   return {
     current_cycle_id: '', classes_used: [], peak_gold: 0, total_mana_spent: 0,
@@ -59,19 +50,15 @@ async function loadDB() {
   try {
     const r = await fetch(`${UPSTASH_URL}/get/${DB_KEY}`, {
       headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
-      cache: 'no-store' // ANTI-CACHE UPSTASH
+      cache: 'no-store'
     });
     const data = await r.json();
-    if (data.error) {
-      dbLoadError = `Upstash error: ${data.error}`;
-    } else if (data.result) {
+    if (data.result) {
       Object.assign(db, JSON.parse(data.result));
-      debugDbLoad = 'ok (data ditemukan)';
-    } else {
-      debugDbLoad = 'ok (belum ada data tersimpan / run pertama)';
+      debugDbLoad = 'ok';
     }
   } catch (e) {
-    debugDbLoad = `exception: ${e.message}`;
+    debugDbLoad = `err: ${e.message}`;
   }
   return db;
 }
@@ -82,22 +69,15 @@ async function saveDB(db) {
       method: 'POST',
       headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
       body: JSON.stringify(db),
-      cache: 'no-store' // ANTI-CACHE UPSTASH
+      cache: 'no-store'
     });
     const data = await r.json();
-    if (data.error) {
-      debugDbSave = `Upstash error: ${data.error}`;
-    } else {
-      debugDbSave = 'ok';
-    }
+    debugDbSave = data.error ? `err: ${data.error}` : 'ok';
   } catch (e) {
-    debugDbSave = `exception: ${e.message}`;
+    debugDbSave = `err: ${e.message}`;
   }
 }
 
-// ==========================================
-// UTILITAS
-// ==========================================
 function bump(store, tid, text, amount) {
   const entry = store[tid] || { text, count: 0 };
   entry.text = text;
@@ -147,9 +127,6 @@ function wrapText(text, width) {
   return lines.slice(0, 4);
 }
 
-// ==========================================
-// FUNGSI UTAMA SVG
-// ==========================================
 async function generateSVG() {
   const db = await loadDB();
 
@@ -161,6 +138,7 @@ async function generateSVG() {
   const weekStartDate = dateOnly(new Date(adjusted.getTime() - daysSinceSunday * 86400000));
   const cycle = fmtDateStr(weekStartDate);
 
+  // 1. SIKLUS MINGGUAN
   if (db.current_cycle_id !== cycle) {
     db.weekly_damage = 0;
     db.weekly_top_dailies = {};
@@ -169,10 +147,28 @@ async function generateSVG() {
     db.current_cycle_id = cycle;
   }
 
+  // 2. SIKLUS BULANAN
   const monthId = `${adjusted.getUTCFullYear()}-${String(adjusted.getUTCMonth() + 1).padStart(2, '0')}`;
   if (db.current_month_id !== monthId) {
     db.monthly_habit_clicks = {};
     db.current_month_id = monthId;
+  }
+
+  // 3. SIKLUS HARIAN (DIPINDAHKAN KE AWAL SEBELUM HITUNG DATA HABIT)
+  if (db.last_daily_date !== todayStr) {
+    db.habit_daily_log = db.habit_daily_log || [];
+    if (Object.keys(db.today_habit_clicks || {}).length || Object.keys(db.today_habit_neg || {}).length) {
+      db.habit_daily_log.push({
+        date: db.last_daily_date,
+        clicks: db.today_habit_clicks,
+        neg: db.today_habit_neg,
+      });
+    }
+    db.habit_daily_log = db.habit_daily_log.slice(-3);
+    db.last_daily_date = todayStr;
+    db.daily_habit_baseline = db.all_time_habits_pos;
+    db.today_habit_clicks = {};
+    db.today_habit_neg = {};
   }
 
   if (db.damage_day_date !== todayStr) {
@@ -181,12 +177,8 @@ async function generateSVG() {
     db.current_day_damage = 0;
   }
 
-  // Opsi Anti-Cache Paling Kuat untuk Vercel/Habitica
-  const fetchOpts = { 
-    headers: habiticaHeaders, 
-    cache: 'no-store' 
-  };
-
+  // 4. FETCH DATA HABITICA
+  const fetchOpts = { headers: habiticaHeaders, cache: 'no-store' };
   const uRes = await (await fetch('https://habitica.com/api/v3/user', fetchOpts)).json();
   const tResRaw = await (await fetch('https://habitica.com/api/v3/tasks/user', fetchOpts)).json();
   const cResRaw = await (await fetch('https://habitica.com/api/v3/tasks/user?type=completedTodos', fetchOpts)).json();
@@ -196,9 +188,7 @@ async function generateSVG() {
   const cRes = Array.isArray(cResRaw.data) ? cResRaw.data : [];
 
   const rawName = (uData.profile && uData.profile.name) || 'Hero';
-  const pName = escapeHtml(rawName.slice(0, 18));
   const svgName = escapeHtml(safeAsciiName(rawName).slice(0, 18));
-
   const cClass = ((uData.stats && uData.stats.class) || 'warrior').toLowerCase();
   const lvl = (uData.stats && uData.stats.lvl) || 1;
   const gold = (uData.stats && uData.stats.gp) || 0;
@@ -216,9 +206,7 @@ async function generateSVG() {
   }
   db.last_mana = mp;
 
-  const dmgUp = ((uData.party || {}).quest || {}).progress
-    ? (uData.party.quest.progress.up || 0)
-    : 0;
+  const dmgUp = ((uData.party || {}).quest || {}).progress ? (uData.party.quest.progress.up || 0) : 0;
   if (dmgUp > db.last_damage_up) {
     const delta = dmgUp - db.last_damage_up;
     db.weekly_damage += delta;
@@ -233,16 +221,13 @@ async function generateSVG() {
     const pr = await fetch('https://habitica.com/api/v3/groups/party', fetchOpts);
     const pj = await pr.json();
     partyData = pj.data || {};
-  } catch (e) {
-    partyData = {};
-  }
+  } catch (e) { partyData = {}; }
+
   const questNow = partyData.quest || {};
   const questKeyNow = questNow.key || null;
   const questActiveNow = !!questNow.active;
   const isBossNow = !!(questNow.progress && 'hp' in questNow.progress);
-  const prevKey = db.last_quest_key;
-  const prevIsBoss = db.last_quest_is_boss;
-  if (prevKey && prevIsBoss && questKeyNow !== prevKey) {
+  if (db.last_quest_key && db.last_quest_is_boss && questKeyNow !== db.last_quest_key) {
     db.bosses_slain += 1;
   }
   db.last_quest_key = questActiveNow ? questKeyNow : null;
@@ -259,7 +244,6 @@ async function generateSVG() {
   const newlyCompleted = [...currentCompletedIds].filter((id) => !lastCompletedIds.has(id));
 
   db.all_time_dailies_completed += newlyCompleted.length;
-
   for (const dTask of done) {
     if (newlyCompleted.includes(dTask.id)) {
       const text = escapeHtml((dTask.text || '').slice(0, 28));
@@ -267,7 +251,6 @@ async function generateSVG() {
     }
   }
   db.last_completed_daily_ids = [...currentCompletedIds];
-
   const topD = Object.values(db.weekly_top_dailies).sort((a, b) => b.count - a.count).slice(0, 5);
 
   const habits = tRes.filter((t) => t.type === 'habit');
@@ -281,8 +264,8 @@ async function generateSVG() {
   const lastHabitCounters = db.last_habit_counters || {};
   const weeklyHabitClicks = db.weekly_habit_clicks || {};
   const weeklyHabitNeg = db.weekly_habit_neg || {};
-  let todayHabitClicks = db.today_habit_clicks || {};
-  let todayHabitNeg = db.today_habit_neg || {};
+  const todayHabitClicks = db.today_habit_clicks || {};
+  const todayHabitNeg = db.today_habit_neg || {};
   const monthlyHabitClicks = db.monthly_habit_clicks || {};
 
   for (const h of habits) {
@@ -316,9 +299,7 @@ async function generateSVG() {
   db.monthly_habit_clicks = monthlyHabitClicks;
 
   const currentCompletedTodos = new Set(cRes.map((t) => t.id));
-  const newlyCompletedTodos = [...currentCompletedTodos].filter(
-    (id) => !(db.last_completed_todo_ids || []).includes(id)
-  );
+  const newlyCompletedTodos = [...currentCompletedTodos].filter((id) => !(db.last_completed_todo_ids || []).includes(id));
   if (db.all_time_todos_completed === 0) db.all_time_todos_completed = cRes.length;
   db.all_time_todos_completed += newlyCompletedTodos.length;
   db.last_completed_todo_ids = [...currentCompletedTodos];
@@ -332,39 +313,15 @@ async function generateSVG() {
   const totalHabitsCount = habits.length;
   const idleWeekPct = totalHabitsCount ? Math.round((habitsUntouchedWeek / totalHabitsCount) * 100) : 0;
 
-  // Reset Harian Berdasarkan WIB
-  if (db.last_daily_date !== todayStr) {
-    db.habit_daily_log = db.habit_daily_log || [];
-    if (Object.keys(db.today_habit_clicks).length || Object.keys(db.today_habit_neg).length) {
-      db.habit_daily_log.push({
-        date: db.last_daily_date,
-        clicks: db.today_habit_clicks,
-        neg: db.today_habit_neg,
-      });
-    }
-    db.habit_daily_log = db.habit_daily_log.slice(-3);
-    db.last_daily_date = todayStr;
-    db.daily_habit_baseline = db.all_time_habits_pos;
-    db.today_habit_clicks = {};
-    db.today_habit_neg = {};
-    todayHabitClicks = {};
-  }
-
   const log = db.habit_daily_log || [];
-  let idleYesterdayCount;
+  let idleYesterdayCount = totalHabitsCount;
   if (log.length) {
     const yesterday = log[log.length - 1];
-    const touchedYesterdayIds = new Set([
-      ...Object.keys(yesterday.clicks || {}),
-      ...Object.keys(yesterday.neg || {}),
-    ]);
+    const touchedYesterdayIds = new Set([...Object.keys(yesterday.clicks || {}), ...Object.keys(yesterday.neg || {})]);
     idleYesterdayCount = habits.filter((h) => !touchedYesterdayIds.has(h.id)).length;
-  } else {
-    idleYesterdayCount = totalHabitsCount;
   }
 
   const topH5Daily = Object.values(todayHabitClicks).sort((a, b) => b.count - a.count).slice(0, 5);
-
   const recentLogs = (db.habit_daily_log || []).slice(-2).map((e) => e.clicks);
   const rolling3Source = mergeClickDicts(todayHabitClicks, ...recentLogs);
   const topH3day = Object.values(rolling3Source).sort((a, b) => b.count - a.count).slice(0, 5);
@@ -377,53 +334,45 @@ async function generateSVG() {
   }).length;
   const tActive = tRes.filter((t) => t.type === 'todo').length;
   const tCleared = cRes.length;
-
   const gTotal = db.all_time_habits_pos + db.all_time_todos_completed + db.all_time_dailies_completed;
 
   const streak = dailies.reduce((mx, t) => Math.max(mx, t.streak || 0), 0);
   const days = Math.max(1, Math.floor((dateOnly(adjusted) - weekStartDate) / 86400000) + 1);
   const avgDmg = db.weekly_damage / days;
 
-  // Membaca file quote.txt secara dinamis
+  // 5. BACA QUOTE SECARA DINAMIS DENGAN process.cwd()
   let quoteText = 'Konsistensi kecil setiap hari membangun benteng keberhasilan di masa depan.';
   try {
-    const quotePath = path.join(__dirname, 'quote.txt');
+    const quotePath = path.join(process.cwd(), 'api', 'quote.txt');
     if (fs.existsSync(quotePath)) {
       const fileContent = fs.readFileSync(quotePath, 'utf8').trim();
       if (fileContent) quoteText = fileContent;
     }
   } catch (e) {
-    console.log('Gagal membaca quote.txt:', e.message);
+    console.log('Gagal baca quote.txt:', e.message);
   }
 
-  // ---- Update bio Habitica ----
+  // 6. UPDATE BIO HABITICA
   if (PUBLIC_STATS_URL) {
-    const habitBioLines = topH.length
-      ? topH.map((it, i) => `${i + 1}. ${it.text} (+${it.count})`).join('\n')
-      : '-';
-    const dailyBioLines = topD.length
-      ? topD.map((it, i) => `${i + 1}. ${it.text} (${it.count}x)`).join('\n')
-      : '-';
+    const habitBioLines = topH.length ? topH.map((it, i) => `${i + 1}. ${it.text} (+${it.count})`).join('\n') : '-';
+    const dailyBioLines = topD.length ? topD.map((it, i) => `${i + 1}. ${it.text} (${it.count}x)`).join('\n') : '-';
     const bio = `### PERFORMANCE MATRIX\n\n![](${PUBLIC_STATS_URL}?v=${Date.now()})\n\n\u26a1 **Streak:** ${streak} hari \u2022 \ud83d\udcb0 **Peak Gold:** ${fmt(db.peak_gold)} G \u2022 \ud83d\udde1\ufe0f **Peak Dmg/Hari:** ${fmt(db.peak_daily_damage)}\n\n---\n\ud83d\udd34 **COMBAT & EXPEDITION**\n- Total Damage (All-Time): **${fmt(db.all_time_damage)}**\n- Weekly Damage: **${fmt(db.weekly_damage)}**\n- Bosses Slain: **${db.bosses_slain}**\n- Buffs Cast: **${db.buffs_cast}** \u2022 Mana Spent: **${fmt(db.total_mana_spent)} MP**\n\n---\n\ud83d\udd35 **PRODUCTIVITY MATRIX**\n- Dailies Hari Ini: **${done.length}/${due.length} (${pct}%)**\n- Habit Mastery: **${hratio}% Positive**\n- Selesai Hari Ini: **${hToday} Habits \u2022 ${done.length} Dailies \u2022 ${tToday} To-Dos**\n\n---\n\ud83d\udfe0 **TOP 5 HABITS (MINGGUAN)**\n${habitBioLines}\n\n\ud83d\udfe2 **TOP 5 DAILIES (MINGGUAN)**\n${dailyBioLines}\n\n---\n> "${quoteText}"\n`;
     try {
       await fetch('https://habitica.com/api/v3/user', {
         method: 'PUT',
         headers: { ...habiticaHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ 'profile.blurb': bio }),
-        cache: 'no-store' // ANTI-CACHE HABITICA
+        cache: 'no-store'
       });
-    } catch (e) {
-      console.log('bio update notice:', e.message);
-    }
+    } catch (e) {}
   }
 
+  // --- RENDERING SVG ---
   const logoSvg = `
     <rect x="14" y="20" width="100" height="100" rx="22" fill="url(#logoBgGlow)" stroke="url(#goldRing)" stroke-width="3"/>
     <rect x="21" y="27" width="86" height="86" rx="17" fill="none" stroke="#f5d78e" stroke-width="1" opacity="0.35"/>
     <circle cx="64" cy="66" r="34" fill="#f2b705" opacity="0.14"/>
-    <g filter="url(#goldGlow)">
-    <path d="M64 36 L86 66 L64 96 L42 66 Z" fill="#fbbf24" opacity="0.5"/>
-    </g>
+    <g filter="url(#goldGlow)"><path d="M64 36 L86 66 L64 96 L42 66 Z" fill="#fbbf24" opacity="0.5"/></g>
     <path d="M64 36 L86 66 L64 96 L42 66 Z" fill="url(#gemGlow)" stroke="#78350f" stroke-width="2"/>
     <path d="M64 36 L86 66 L64 66 Z" fill="#fff7d6" opacity="0.5"/>
     <circle cx="64" cy="60" r="7" fill="#fffbe8" opacity="0.9"/>
@@ -441,12 +390,8 @@ async function generateSVG() {
       return (s - 1) / 2147483646;
     };
   }
-  function randInt(rnd, min, max) {
-    return Math.floor(rnd() * (max - min + 1)) + min;
-  }
-  function randFloat(rnd, min, max) {
-    return rnd() * (max - min) + min;
-  }
+  function randInt(rnd, min, max) { return Math.floor(rnd() * (max - min + 1)) + min; }
+  function randFloat(rnd, min, max) { return rnd() * (max - min) + min; }
 
   let rnd = seededRandom(42);
   let pineTrees = '';
@@ -456,10 +401,7 @@ async function generateSVG() {
     const y = 128 - scale * 80 + randFloat(rnd, -4, 4);
     const opacity = randFloat(rnd, 0.55, 0.95);
     pineTrees += `<g transform="translate(${x}, ${y.toFixed(1)}) scale(${scale.toFixed(2)})" opacity="${opacity.toFixed(2)}">`;
-    pineTrees += '<polygon points="25,0 0,35 50,35" fill="#0d7a58"/>';
-    pineTrees += '<polygon points="25,15 0,50 50,50" fill="#0a6b4d"/>';
-    pineTrees += '<polygon points="25,30 0,65 50,65" fill="#085c42"/>';
-    pineTrees += '<rect x="21" y="65" width="8" height="15" fill="#3f2c22"/></g>';
+    pineTrees += '<polygon points="25,0 0,35 50,35" fill="#0d7a58"/><polygon points="25,15 0,50 50,50" fill="#0a6b4d"/><polygon points="25,30 0,65 50,65" fill="#085c42"/><rect x="21" y="65" width="8" height="15" fill="#3f2c22"/></g>';
   }
 
   rnd = seededRandom(21);
@@ -485,15 +427,11 @@ async function generateSVG() {
 
   rnd = seededRandom(58);
   let rocks = '';
-  const baseXs = [265, 335, 405];
-  for (const bx of baseXs) {
+  for (const bx of [265, 335, 405]) {
     const rx = bx + randInt(rnd, -15, 15);
     const ry = randInt(rnd, 126, 136);
     const rs = randFloat(rnd, 0.8, 1.3);
-    rocks += `<g transform="translate(${rx},${ry}) scale(${rs.toFixed(2)})">`;
-    rocks += '<ellipse cx="0" cy="0" rx="9" ry="5" fill="#57534e" stroke="#3f3a36" stroke-width="1"/>';
-    rocks += '<ellipse cx="-3" cy="-2" rx="3" ry="1.6" fill="#78716c" opacity="0.6"/>';
-    rocks += '</g>';
+    rocks += `<g transform="translate(${rx},${ry}) scale(${rs.toFixed(2)})"><ellipse cx="0" cy="0" rx="9" ry="5" fill="#57534e" stroke="#3f3a36" stroke-width="1"/><ellipse cx="-3" cy="-2" rx="3" ry="1.6" fill="#78716c" opacity="0.6"/></g>';
   }
 
   const icSw = '<path d="M4 20L20 4M8 20L20 8" stroke="#fb7185" stroke-width="2.5" stroke-linecap="round"/>';
@@ -528,9 +466,7 @@ async function generateSVG() {
   const cfg = cfgMap[cClass] || cfgMap.warrior;
 
   const quoteLines = wrapText(quoteText, 50);
-  const quoteTspans = quoteLines
-    .map((line, i) => `<tspan x="28" dy="${i === 0 ? 0 : 18}">${escapeHtml(line)}</tspan>`)
-    .join('');
+  const quoteTspans = quoteLines.map((line, i) => `<tspan x="28" dy="${i === 0 ? 0 : 18}">${escapeHtml(line)}</tspan>`).join('');
 
   const canvasW = 460;
   const QUOTE_Y = 1335;
@@ -543,10 +479,7 @@ async function generateSVG() {
     const x = randInt(rnd, -20, canvasW - 20);
     const y = randInt(rnd, 150, canvasH - 40);
     const scale = randFloat(rnd, 0.5, 1.0);
-    bgPattern += `<g transform="translate(${x},${y}) scale(${scale.toFixed(2)})" opacity="0.045">`;
-    bgPattern += '<polygon points="25,0 0,35 50,35" fill="#94a3b8"/>';
-    bgPattern += '<polygon points="25,15 0,50 50,50" fill="#94a3b8"/>';
-    bgPattern += '</g>';
+    bgPattern += `<g transform="translate(${x},${y}) scale(${scale.toFixed(2)})" opacity="0.045"><polygon points="25,0 0,35 50,35" fill="#94a3b8"/><polygon points="25,15 0,50 50,50" fill="#94a3b8"/></g>`;
   }
 
   const h5dailyStr = topH5Daily.map((it, i) => `<text x="28" y="${696 + i * 18}" class="list">${i + 1}. ${it.text} (+${it.count})</text>`).join('');
@@ -674,17 +607,14 @@ async function generateSVG() {
   return svg;
 }
 
-// ==========================================
-// FONT: dibaca dari file lokal (bundled di repo)
-// ==========================================
 let fontBuffersCache = null;
 let fontLoadError = null;
 
 function getFontsSync() {
   if (fontBuffersCache) return fontBuffersCache;
   try {
-    const reg = fs.readFileSync(path.join(__dirname, 'Roboto-Regular.ttf'));
-    const bold = fs.readFileSync(path.join(__dirname, 'Roboto-Bold.ttf'));
+    const reg = fs.readFileSync(path.join(process.cwd(), 'api', 'Roboto-Regular.ttf'));
+    const bold = fs.readFileSync(path.join(process.cwd(), 'api', 'Roboto-Bold.ttf'));
     fontBuffersCache = [reg, bold];
     fontLoadError = 'ok';
   } catch (e) {
@@ -694,9 +624,6 @@ function getFontsSync() {
   return fontBuffersCache;
 }
 
-// ==========================================
-// HANDLER VERCEL (Node.js)
-// ==========================================
 module.exports = async (req, res) => {
   try {
     debugDbLoad = 'pending';
@@ -713,13 +640,11 @@ module.exports = async (req, res) => {
     const pngData = resvg.render();
     const pngBuffer = pngData.asPng();
 
-    // Pastikan Gambar Selalu Baru
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
     
-    // Header debug
     res.setHeader('X-Debug-DB-Load', debugDbLoad || 'unknown');
     res.setHeader('X-Debug-DB-Save', debugDbSave || 'unknown');
     res.setHeader('X-Debug-Font', fontLoadError || 'unknown');
