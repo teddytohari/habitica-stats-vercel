@@ -339,7 +339,8 @@ async function generateSVG() {
 
   let quoteText = 'Konsistensi kecil setiap hari membangun benteng keberhasilan di masa depan.';
   try {
-    const quotePath = path.join(process.cwd(), 'api', 'quote.txt');
+    // [EDIT: Path untuk quote diperbarui ke __dirname]
+    const quotePath = path.join(__dirname, 'quote.txt');
     if (fs.existsSync(quotePath)) {
       const fileContent = fs.readFileSync(quotePath, 'utf8').trim();
       if (fileContent) quoteText = fileContent;
@@ -607,8 +608,9 @@ let fontLoadError = null;
 function getFontsSync() {
   if (fontBuffersCache) return fontBuffersCache;
   try {
-    const reg = fs.readFileSync(path.join(process.cwd(), 'api', 'Roboto-Regular.ttf'));
-    const bold = fs.readFileSync(path.join(process.cwd(), 'api', 'Roboto-Bold.ttf'));
+    // [EDIT: Path untuk font diperbarui ke __dirname]
+    const reg = fs.readFileSync(path.join(__dirname, 'Roboto-Regular.ttf'));
+    const bold = fs.readFileSync(path.join(__dirname, 'Roboto-Bold.ttf'));
     fontBuffersCache = [reg, bold];
     fontLoadError = 'ok';
   } catch (e) {
