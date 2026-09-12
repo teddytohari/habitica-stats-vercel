@@ -3197,16 +3197,18 @@ module.exports = async (req, res) => {
     // GET /api/stats
     // --------------------------------------
     const svg = await generateSVG();
-    const fontBuffers = getFontsSync();
+    const fontInfo = getFontsSync();
 
-    if (!fontBuffers.length) {
+    // getFontsSync() mengembalikan object berisi path font.
+    // resvg harus menerima path tersebut melalui fontFiles.
+    if (!fontInfo || !Array.isArray(fontInfo.files) || !fontInfo.files.length) {
       throw new Error(`Font tidak ditemukan: ${fontLoadError}`);
     }
 
     const resvgOpts = {
       fitTo: { mode: 'original' },
       font: {
-        fontBuffers,
+        fontFiles: fontInfo.files,
         defaultFontFamily: 'Roboto',
         sansSerifFamily: 'Roboto',
         loadSystemFonts: false,
@@ -3248,4 +3250,3 @@ module.exports = async (req, res) => {
 };
 
 module.exports.generateSVG = generateSVG;
-
