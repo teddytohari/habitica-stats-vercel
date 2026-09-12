@@ -16,15 +16,17 @@ const habiticaHeaders = {
 };
 
 // ==========================================
-// Tanggal WIB (UTC+7) - trik: geser Date() lalu selalu pakai getUTC*
+// Variabel Debugging Upstash
+// ==========================================
+let debugDbLoad = 'pending';
+let debugDbSave = 'pending';
+
+// ==========================================
+// Tanggal WIB (UTC+7)
 // ==========================================
 const WIB_MS = 7 * 3600 * 1000;
-function nowWIB() {
-  return new Date(Date.now() + WIB_MS);
-}
-function dateOnly(d) {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-}
+function nowWIB() { return new Date(Date.now() + WIB_MS); }
+function dateOnly(d) { return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())); }
 function fmtDateStr(d) {
   const y = d.getUTCFullYear();
   const m = String(d.getUTCMonth() + 1).padStart(2, '0');
@@ -33,12 +35,8 @@ function fmtDateStr(d) {
 }
 
 // ==========================================
-// GANTI database.json -> UPSTASH (REST API)
-// Sekarang error ditangkap ke variabel supaya bisa dicek lewat header response
+// DATABASE UPSTASH HANDLERS
 // ==========================================
-let dbLoadError = null;
-let dbSaveError = null;
-
 function defaultDB() {
   return {
     current_cycle_id: '', classes_used: [], peak_gold: 0, total_mana_spent: 0,
@@ -61,18 +59,19 @@ async function loadDB() {
   try {
     const r = await fetch(`${UPSTASH_URL}/get/${DB_KEY}`, {
       headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
+      cache: 'no-store' // ANTI-CACHE UPSTASH
     });
     const data = await r.json();
     if (data.error) {
       dbLoadError = `Upstash error: ${data.error}`;
     } else if (data.result) {
       Object.assign(db, JSON.parse(data.result));
-      dbLoadError = 'ok (data ditemukan)';
+      debugDbLoad = 'ok (data ditemukan)';
     } else {
-      dbLoadError = 'ok (belum ada data tersimpan / run pertama)';
+      debugDbLoad = 'ok (belum ada data tersimpan / run pertama)';
     }
   } catch (e) {
-    dbLoadError = `exception: ${e.message}`;
+    debugDbLoad = `exception: ${e.message}`;
   }
   return db;
 }
@@ -83,15 +82,16 @@ async function saveDB(db) {
       method: 'POST',
       headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
       body: JSON.stringify(db),
+      cache: 'no-store' // ANTI-CACHE UPSTASH
     });
     const data = await r.json();
     if (data.error) {
-      dbSaveError = `Upstash error: ${data.error}`;
+      debugDbSave = `Upstash error: ${data.error}`;
     } else {
-      dbSaveError = 'ok';
+      debugDbSave = 'ok';
     }
   } catch (e) {
-    dbSaveError = `exception: ${e.message}`;
+    debugDbSave = `exception: ${e.message}`;
   }
 }
 
@@ -118,34 +118,21 @@ function mergeClickDicts(...dicts) {
   return merged;
 }
 
-function trunc(s, n = 17) {
-  return s.length <= n ? s : s.slice(0, n - 1).trimEnd() + '\u2026';
-}
-
+function trunc(s, n = 17) { return s.length <= n ? s : s.slice(0, n - 1).trimEnd() + '\u2026'; }
 function fmt(n) {
   if (n >= 1000000) return `${(n / 1000000).toFixed(2)}m`;
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(Math.trunc(n));
 }
-
 function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
-
 function safeAsciiName(name, fallback = 'HERO') {
   try {
     const normalized = name.normalize('NFKD');
-    const cleaned = normalized
-      .split('')
-      .filter((ch) => ch.charCodeAt(0) < 128 && /[A-Za-z0-9\s\-_.']/.test(ch))
-      .join('')
-      .trim();
-    return cleaned || fallback;
-  } catch (e) {
-    return fallback;
-  }
+    return normalized.split('').filter((ch) => ch.charCodeAt(0) < 128 && /[A-Za-z0-9\s\-_.']/.test(ch)).join('').trim() || fallback;
+  } catch (e) { return fallback; }
 }
-
 function wrapText(text, width) {
   const words = text.split(' ');
   const lines = [];
@@ -154,16 +141,14 @@ function wrapText(text, width) {
     if ((line + ' ' + w).trim().length > width) {
       if (line) lines.push(line.trim());
       line = w;
-    } else {
-      line = (line + ' ' + w).trim();
-    }
+    } else { line = (line + ' ' + w).trim(); }
   }
   if (line) lines.push(line);
   return lines.slice(0, 4);
 }
 
 // ==========================================
-// FUNGSI UTAMA
+// FUNGSI UTAMA SVG
 // ==========================================
 async function generateSVG() {
   const db = await loadDB();
@@ -196,9 +181,15 @@ async function generateSVG() {
     db.current_day_damage = 0;
   }
 
-  const uRes = await (await fetch('https://habitica.com/api/v3/user', { headers: habiticaHeaders })).json();
-  const tResRaw = await (await fetch('https://habitica.com/api/v3/tasks/user', { headers: habiticaHeaders })).json();
-  const cResRaw = await (await fetch('https://habitica.com/api/v3/tasks/user?type=completedTodos', { headers: habiticaHeaders })).json();
+  // Opsi Anti-Cache Paling Kuat untuk Vercel/Habitica
+  const fetchOpts = { 
+    headers: habiticaHeaders, 
+    cache: 'no-store' 
+  };
+
+  const uRes = await (await fetch('https://habitica.com/api/v3/user', fetchOpts)).json();
+  const tResRaw = await (await fetch('https://habitica.com/api/v3/tasks/user', fetchOpts)).json();
+  const cResRaw = await (await fetch('https://habitica.com/api/v3/tasks/user?type=completedTodos', fetchOpts)).json();
 
   const uData = uRes.data || {};
   const tRes = Array.isArray(tResRaw.data) ? tResRaw.data : [];
@@ -239,7 +230,7 @@ async function generateSVG() {
 
   let partyData = {};
   try {
-    const pr = await fetch('https://habitica.com/api/v3/groups/party', { headers: habiticaHeaders });
+    const pr = await fetch('https://habitica.com/api/v3/groups/party', fetchOpts);
     const pj = await pr.json();
     partyData = pj.data || {};
   } catch (e) {
@@ -341,6 +332,7 @@ async function generateSVG() {
   const totalHabitsCount = habits.length;
   const idleWeekPct = totalHabitsCount ? Math.round((habitsUntouchedWeek / totalHabitsCount) * 100) : 0;
 
+  // Reset Harian Berdasarkan WIB
   if (db.last_daily_date !== todayStr) {
     db.habit_daily_log = db.habit_daily_log || [];
     if (Object.keys(db.today_habit_clicks).length || Object.keys(db.today_habit_neg).length) {
@@ -392,7 +384,17 @@ async function generateSVG() {
   const days = Math.max(1, Math.floor((dateOnly(adjusted) - weekStartDate) / 86400000) + 1);
   const avgDmg = db.weekly_damage / days;
 
-  let quoteText = 'Consistency is not perfection, it is simply refusing to give up.';
+  // Membaca file quote.txt secara dinamis
+  let quoteText = 'Konsistensi kecil setiap hari membangun benteng keberhasilan di masa depan.';
+  try {
+    const quotePath = path.join(__dirname, 'quote.txt');
+    if (fs.existsSync(quotePath)) {
+      const fileContent = fs.readFileSync(quotePath, 'utf8').trim();
+      if (fileContent) quoteText = fileContent;
+    }
+  } catch (e) {
+    console.log('Gagal membaca quote.txt:', e.message);
+  }
 
   // ---- Update bio Habitica ----
   if (PUBLIC_STATS_URL) {
@@ -402,12 +404,13 @@ async function generateSVG() {
     const dailyBioLines = topD.length
       ? topD.map((it, i) => `${i + 1}. ${it.text} (${it.count}x)`).join('\n')
       : '-';
-    const bio = `### PERFORMANCE MATRIX\n\n![](${PUBLIC_STATS_URL}?v=3)\n\n\u26a1 **Streak:** ${streak} hari \u2022 \ud83d\udcb0 **Peak Gold:** ${fmt(db.peak_gold)} G \u2022 \ud83d\udde1\ufe0f **Peak Dmg/Hari:** ${fmt(db.peak_daily_damage)}\n\n---\n\ud83d\udd34 **COMBAT & EXPEDITION**\n- Total Damage (All-Time): **${fmt(db.all_time_damage)}**\n- Weekly Damage: **${fmt(db.weekly_damage)}**\n- Bosses Slain: **${db.bosses_slain}**\n- Buffs Cast: **${db.buffs_cast}** \u2022 Mana Spent: **${fmt(db.total_mana_spent)} MP**\n\n---\n\ud83d\udd35 **PRODUCTIVITY MATRIX**\n- Dailies Hari Ini: **${done.length}/${due.length} (${pct}%)**\n- Habit Mastery: **${hratio}% Positive**\n- Selesai Hari Ini: **${hToday} Habits \u2022 ${done.length} Dailies \u2022 ${tToday} To-Dos**\n\n---\n\ud83d\udfe0 **TOP 5 HABITS (MINGGUAN)**\n${habitBioLines}\n\n\ud83d\udfe2 **TOP 5 DAILIES (MINGGUAN)**\n${dailyBioLines}\n\n---\n> "${quoteText}"\n`;
+    const bio = `### PERFORMANCE MATRIX\n\n![](${PUBLIC_STATS_URL}?v=${Date.now()})\n\n\u26a1 **Streak:** ${streak} hari \u2022 \ud83d\udcb0 **Peak Gold:** ${fmt(db.peak_gold)} G \u2022 \ud83d\udde1\ufe0f **Peak Dmg/Hari:** ${fmt(db.peak_daily_damage)}\n\n---\n\ud83d\udd34 **COMBAT & EXPEDITION**\n- Total Damage (All-Time): **${fmt(db.all_time_damage)}**\n- Weekly Damage: **${fmt(db.weekly_damage)}**\n- Bosses Slain: **${db.bosses_slain}**\n- Buffs Cast: **${db.buffs_cast}** \u2022 Mana Spent: **${fmt(db.total_mana_spent)} MP**\n\n---\n\ud83d\udd35 **PRODUCTIVITY MATRIX**\n- Dailies Hari Ini: **${done.length}/${due.length} (${pct}%)**\n- Habit Mastery: **${hratio}% Positive**\n- Selesai Hari Ini: **${hToday} Habits \u2022 ${done.length} Dailies \u2022 ${tToday} To-Dos**\n\n---\n\ud83d\udfe0 **TOP 5 HABITS (MINGGUAN)**\n${habitBioLines}\n\n\ud83d\udfe2 **TOP 5 DAILIES (MINGGUAN)**\n${dailyBioLines}\n\n---\n> "${quoteText}"\n`;
     try {
       await fetch('https://habitica.com/api/v3/user', {
         method: 'PUT',
         headers: { ...habiticaHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ 'profile.blurb': bio }),
+        cache: 'no-store' // ANTI-CACHE HABITICA
       });
     } catch (e) {
       console.log('bio update notice:', e.message);
@@ -588,6 +591,7 @@ async function generateSVG() {
   <g clip-path="url(#rc)">
     <rect width="${canvasW}" height="${canvasH}" fill="url(#g1)"/>
     ${bgPattern}
+
     <rect x="0" y="0" width="460" height="140" fill="#0f172a"/>
     ${nightStars}
     ${groundBand}
@@ -695,6 +699,9 @@ function getFontsSync() {
 // ==========================================
 module.exports = async (req, res) => {
   try {
+    debugDbLoad = 'pending';
+    debugDbSave = 'pending';
+
     const svg = await generateSVG();
     const fontBuffers = getFontsSync();
 
@@ -706,12 +713,17 @@ module.exports = async (req, res) => {
     const pngData = resvg.render();
     const pngBuffer = pngData.asPng();
 
+    // Pastikan Gambar Selalu Baru
     res.setHeader('Content-Type', 'image/png');
-    res.setHeader('Cache-Control', 'no-store, max-age=0');
-    // Header debug - buka DevTools > Network > klik request ini > Headers untuk lihat ini
-    res.setHeader('X-Debug-DB-Load', dbLoadError || 'unknown');
-    res.setHeader('X-Debug-DB-Save', dbSaveError || 'unknown');
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    
+    // Header debug
+    res.setHeader('X-Debug-DB-Load', debugDbLoad || 'unknown');
+    res.setHeader('X-Debug-DB-Save', debugDbSave || 'unknown');
     res.setHeader('X-Debug-Font', fontLoadError || 'unknown');
+    
     res.status(200).send(pngBuffer);
   } catch (e) {
     res.status(500).send(`Error generating stats: ${e.message}\n${e.stack}`);
