@@ -3166,144 +3166,86 @@ function getFontsSync() {
 // HTTP HANDLER
 // ==========================================
 
-module.exports = async (req, res) => {
-  try {
+// ==========================================
+// PHASE 3A — HABITICA WEBHOOK + PNG ENDPOINT
+// ==========================================
 
-    const svg =
+module.exports = async (req, res) => {
+  const isWebhook = req.method === 'POST';
+
+  try {
+    // --------------------------------------
+    // HABITICA WEBHOOK
+    // --------------------------------------
+    if (isWebhook) {
+      console.log('PHASE 3A: Habitica webhook diterima');
+
       await generateSVG();
 
-    const fonts =
-      getFontsSync();
+      res.setHeader('Content-Type', 'application/json');
+      res.status(200).json({
+        ok: true,
+        message: 'Habitica webhook processed',
+        timestamp: new Date().toISOString(),
+      });
 
-    // ========================================
-    // RESVG
-    // ========================================
+      return;
+    }
+
+    // --------------------------------------
+    // NORMAL PNG REQUEST
+    // GET /api/stats
+    // --------------------------------------
+    const svg = await generateSVG();
+    const fontBuffers = getFontsSync();
+
+    if (!fontBuffers.length) {
+      throw new Error(`Font tidak ditemukan: ${fontLoadError}`);
+    }
 
     const resvgOpts = {
-      fitTo: {
-        mode: 'original',
-      },
-
+      fitTo: { mode: 'original' },
       font: {
-        fontFiles:
-          fonts.files,
-
-        defaultFontFamily:
-          'Roboto',
-
-        sansSerifFamily:
-          'Roboto',
-
-        loadSystemFonts:
-          false,
+        fontBuffers,
+        defaultFontFamily: 'Roboto',
+        sansSerifFamily: 'Roboto',
+        loadSystemFonts: false,
       },
     };
 
-    const resvg =
-      new Resvg(
-        svg,
-        resvgOpts
-      );
+    const resvg = new Resvg(svg, resvgOpts);
+    const pngData = resvg.render();
+    const pngBuffer = pngData.asPng();
 
-    const pngData =
-      resvg.render();
-
-    const pngBuffer =
-      pngData.asPng();
-
-    // ========================================
-    // RESPONSE
-    // ========================================
-
-    res.setHeader(
-      'Content-Type',
-      'image/png'
-    );
-
+    res.setHeader('Content-Type', 'image/png');
     res.setHeader(
       'Cache-Control',
       'no-store, no-cache, must-revalidate, proxy-revalidate'
     );
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
 
-    res.setHeader(
-      'Pragma',
-      'no-cache'
-    );
+    res.setHeader('X-Debug-Font', fontLoadError);
+    res.setHeader('X-Debug-DB-Load', debugDbLoad);
+    res.setHeader('X-Debug-DB-Save', debugDbSave);
 
-    res.setHeader(
-      'Expires',
-      '0'
-    );
-
-    res.setHeader(
-      'X-Debug-Font',
-      fontLoadError
-    );
-
-    res.setHeader(
-      'X-Debug-Font-Count',
-      String(
-        fonts.files.length
-      )
-    );
-
-    res.setHeader(
-      'X-Debug-Font-Regular-Size',
-      String(
-        fonts.regularSize
-      )
-    );
-
-    res.setHeader(
-      'X-Debug-Font-Bold-Size',
-      String(
-        fonts.boldSize
-      )
-    );
-
-    res.setHeader(
-      'X-Debug-Renderer',
-      'resvg-fontFiles'
-    );
-
-    res.setHeader(
-      'X-Debug-DB-Load',
-      debugDbLoad
-    );
-
-    res.setHeader(
-      'X-Debug-DB-Save',
-      debugDbSave
-    );
-
-    res.status(200).send(
-      pngBuffer
-    );
+    res.status(200).send(pngBuffer);
 
   } catch (e) {
+    console.error('PHASE 3A ERROR:', e);
 
-    console.error(
-      'STATS RENDER ERROR:',
-      e
-    );
+    if (isWebhook) {
+      res.setHeader('Content-Type', 'application/json');
+      res.status(500).json({
+        ok: false,
+        error: e.message,
+      });
+      return;
+    }
 
-    res.status(500).json({
-      ok: false,
-
-      error: e.message,
-
-      debug: {
-        font: fontLoadError,
-        dbLoad: debugDbLoad,
-        dbSave: debugDbSave,
-      },
-    });
+    res.status(500).send(`Error: ${e.message}`);
   }
 };
 
-// ==========================================
-// OPTIONAL EXPORT
-// ==========================================
+module.exports.generateSVG = generateSVG;
 
-module.exports.generateSVG =
-  generateSVG;
