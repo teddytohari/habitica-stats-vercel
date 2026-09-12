@@ -138,7 +138,6 @@ async function generateSVG() {
   const weekStartDate = dateOnly(new Date(adjusted.getTime() - daysSinceSunday * 86400000));
   const cycle = fmtDateStr(weekStartDate);
 
-  // 1. SIKLUS MINGGUAN
   if (db.current_cycle_id !== cycle) {
     db.weekly_damage = 0;
     db.weekly_top_dailies = {};
@@ -147,14 +146,13 @@ async function generateSVG() {
     db.current_cycle_id = cycle;
   }
 
-  // 2. SIKLUS BULANAN
   const monthId = `${adjusted.getUTCFullYear()}-${String(adjusted.getUTCMonth() + 1).padStart(2, '0')}`;
   if (db.current_month_id !== monthId) {
     db.monthly_habit_clicks = {};
     db.current_month_id = monthId;
   }
 
-  // 3. SIKLUS HARIAN (DIPINDAHKAN KE AWAL SEBELUM HITUNG DATA HABIT)
+  // RESET HARIAN YANG AMAN: Diproses di awal
   if (db.last_daily_date !== todayStr) {
     db.habit_daily_log = db.habit_daily_log || [];
     if (Object.keys(db.today_habit_clicks || {}).length || Object.keys(db.today_habit_neg || {}).length) {
@@ -177,7 +175,6 @@ async function generateSVG() {
     db.current_day_damage = 0;
   }
 
-  // 4. FETCH DATA HABITICA
   const fetchOpts = { headers: habiticaHeaders, cache: 'no-store' };
   const uRes = await (await fetch('https://habitica.com/api/v3/user', fetchOpts)).json();
   const tResRaw = await (await fetch('https://habitica.com/api/v3/tasks/user', fetchOpts)).json();
@@ -340,7 +337,6 @@ async function generateSVG() {
   const days = Math.max(1, Math.floor((dateOnly(adjusted) - weekStartDate) / 86400000) + 1);
   const avgDmg = db.weekly_damage / days;
 
-  // 5. BACA QUOTE SECARA DINAMIS DENGAN process.cwd()
   let quoteText = 'Konsistensi kecil setiap hari membangun benteng keberhasilan di masa depan.';
   try {
     const quotePath = path.join(process.cwd(), 'api', 'quote.txt');
@@ -349,10 +345,9 @@ async function generateSVG() {
       if (fileContent) quoteText = fileContent;
     }
   } catch (e) {
-    console.log('Gagal baca quote.txt:', e.message);
+    console.log('Gagal baca quote:', e.message);
   }
 
-  // 6. UPDATE BIO HABITICA
   if (PUBLIC_STATS_URL) {
     const habitBioLines = topH.length ? topH.map((it, i) => `${i + 1}. ${it.text} (+${it.count})`).join('\n') : '-';
     const dailyBioLines = topD.length ? topD.map((it, i) => `${i + 1}. ${it.text} (${it.count}x)`).join('\n') : '-';
@@ -367,7 +362,6 @@ async function generateSVG() {
     } catch (e) {}
   }
 
-  // --- RENDERING SVG ---
   const logoSvg = `
     <rect x="14" y="20" width="100" height="100" rx="22" fill="url(#logoBgGlow)" stroke="url(#goldRing)" stroke-width="3"/>
     <rect x="21" y="27" width="86" height="86" rx="17" fill="none" stroke="#f5d78e" stroke-width="1" opacity="0.35"/>
@@ -431,7 +425,7 @@ async function generateSVG() {
     const rx = bx + randInt(rnd, -15, 15);
     const ry = randInt(rnd, 126, 136);
     const rs = randFloat(rnd, 0.8, 1.3);
-    rocks += `<g transform="translate(${rx},${ry}) scale(${rs.toFixed(2)})"><ellipse cx="0" cy="0" rx="9" ry="5" fill="#57534e" stroke="#3f3a36" stroke-width="1"/><ellipse cx="-3" cy="-2" rx="3" ry="1.6" fill="#78716c" opacity="0.6"/></g>';
+    rocks += `<g transform="translate(${rx},${ry}) scale(${rs.toFixed(2)})"><ellipse cx="0" cy="0" rx="9" ry="5" fill="#57534e" stroke="#3f3a36" stroke-width="1"/><ellipse cx="-3" cy="-2" rx="3" ry="1.6" fill="#78716c" opacity="0.6"/></g>`;
   }
 
   const icSw = '<path d="M4 20L20 4M8 20L20 8" stroke="#fb7185" stroke-width="2.5" stroke-linecap="round"/>';
