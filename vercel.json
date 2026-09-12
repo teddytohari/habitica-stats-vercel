@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/stats.js": {
+      "includeFiles": "api/*.ttf"
+    }
+  }
+}
