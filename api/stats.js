@@ -2,46 +2,46 @@ const { Resvg } = require('@resvg/resvg-js');
 const fs = require('fs');
 const path = require('path');
 
-function loadFont(filename) {
-  const possiblePaths = [
+function findFont(filename) {
+  const candidates = [
     path.join(__dirname, filename),
     path.join(process.cwd(), 'api', filename),
     path.join('/var/task/api', filename),
     path.join('/var/task', filename),
   ];
 
-  for (const filePath of possiblePaths) {
+  for (const filePath of candidates) {
     if (fs.existsSync(filePath)) {
+      const stat = fs.statSync(filePath);
+
       return {
-        buffer: fs.readFileSync(filePath),
         path: filePath,
+        size: stat.size,
       };
     }
   }
 
   throw new Error(
-    `Font tidak ditemukan: ${filename}\n` +
-    `Dicari di:\n${possiblePaths.join('\n')}`
+    `Font tidak ditemukan: ${filename}\n\n` +
+    candidates.join('\n')
   );
 }
 
 module.exports = async (req, res) => {
   try {
-    // ==============================
-    // LOAD FONT
-    // ==============================
+    // ==========================================
+    // 1. FIND FONT FILES
+    // ==========================================
 
-    const regular = loadFont('Roboto-Regular.ttf');
-    const bold = loadFont('Roboto-Bold.ttf');
+    const regular = findFont('Roboto-Regular.ttf');
+    const bold = findFont('Roboto-Bold.ttf');
 
-    const fontBuffers = [
-      regular.buffer,
-      bold.buffer,
-    ];
+    console.log('Roboto Regular:', regular);
+    console.log('Roboto Bold:', bold);
 
-    // ==============================
-    // TEST SVG
-    // ==============================
+    // ==========================================
+    // 2. SVG TEST
+    // ==========================================
 
     const svg = `
 <svg
@@ -65,9 +65,7 @@ module.exports = async (req, res) => {
     font-size="42"
     font-weight="400"
     fill="#ffffff"
-  >
-    HELLO ROBOTO
-  </text>
+  >HELLO ROBOTO</text>
 
   <text
     x="40"
@@ -76,9 +74,7 @@ module.exports = async (req, res) => {
     font-size="42"
     font-weight="700"
     fill="#ffffff"
-  >
-    HABITICA STATS
-  </text>
+  >HABITICA STATS</text>
 
   <text
     x="40"
@@ -87,9 +83,7 @@ module.exports = async (req, res) => {
     font-size="28"
     font-weight="400"
     fill="#94a3b8"
-  >
-    Regular 400 + Bold 700
-  </text>
+  >Regular 400 + Bold 700</text>
 
   <text
     x="40"
@@ -98,9 +92,7 @@ module.exports = async (req, res) => {
     font-size="28"
     font-weight="700"
     fill="#ffffff"
-  >
-    FONT RENDER TEST 1234567890
-  </text>
+  >FONT RENDER TEST 1234567890</text>
 
   <text
     x="40"
@@ -109,9 +101,7 @@ module.exports = async (req, res) => {
     font-size="24"
     font-weight="400"
     fill="#cbd5e1"
-  >
-    Vercel + Resvg + TTF
-  </text>
+  >Vercel + Resvg + TTF</text>
 
   <text
     x="40"
@@ -120,15 +110,13 @@ module.exports = async (req, res) => {
     font-size="20"
     font-weight="400"
     fill="#64748b"
-  >
-    Phase A
-  </text>
+  >PHASE A.1</text>
 </svg>
 `;
 
-    // ==============================
-    // RESVG
-    // ==============================
+    // ==========================================
+    // 3. RESVG
+    // ==========================================
 
     const resvg = new Resvg(svg, {
       fitTo: {
@@ -136,7 +124,10 @@ module.exports = async (req, res) => {
       },
 
       font: {
-        fontBuffers,
+        fontFiles: [
+          regular.path,
+          bold.path,
+        ],
 
         defaultFontFamily: 'Roboto',
         sansSerifFamily: 'Roboto',
@@ -145,12 +136,16 @@ module.exports = async (req, res) => {
       },
     });
 
+    // ==========================================
+    // 4. RENDER
+    // ==========================================
+
     const pngData = resvg.render();
     const pngBuffer = pngData.asPng();
 
-    // ==============================
-    // RESPONSE
-    // ==============================
+    // ==========================================
+    // 5. RESPONSE
+    // ==========================================
 
     res.setHeader('Content-Type', 'image/png');
 
@@ -162,20 +157,40 @@ module.exports = async (req, res) => {
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
 
-    // Debug information
-    res.setHeader('X-Debug-Font-Regular', regular.path);
-    res.setHeader('X-Debug-Font-Bold', bold.path);
-    res.setHeader('X-Debug-Font-Count', String(fontBuffers.length));
+    res.setHeader(
+      'X-Debug-Font-Regular-Path',
+      regular.path
+    );
+
+    res.setHeader(
+      'X-Debug-Font-Regular-Size',
+      String(regular.size)
+    );
+
+    res.setHeader(
+      'X-Debug-Font-Bold-Path',
+      bold.path
+    );
+
+    res.setHeader(
+      'X-Debug-Font-Bold-Size',
+      String(bold.size)
+    );
+
+    res.setHeader(
+      'X-Debug-Renderer',
+      'resvg-fontFiles'
+    );
 
     res.status(200).send(pngBuffer);
 
   } catch (error) {
 
-    console.error('PHASE A ERROR:', error);
+    console.error('PHASE A.1 ERROR:', error);
 
     res.status(500).json({
       ok: false,
-      phase: 'A',
+      phase: 'A.1',
       error: error.message,
       stack: error.stack,
     });
