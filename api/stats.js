@@ -119,6 +119,17 @@ function defaultDB() {
 
     weekly_top_dailies: {},
 
+    // ==========================================
+    // PHASE 3B — HISTORICAL DAILY FAILURE TRACKING
+    // Menyimpan snapshot Dailies yang jatuh tempo
+    // dan yang selesai untuk menentukan kegagalan
+    // pada pergantian hari berikutnya.
+    // ==========================================
+    dailies_failed: 0,
+    dailies_snapshot_date: '',
+    dailies_snapshot_due_ids: [],
+    dailies_snapshot_completed_ids: [],
+
     last_daily_date: '',
     daily_habit_baseline: 0,
 
@@ -253,6 +264,26 @@ async function loadDB() {
     db.last_completed_daily_ids =
       Array.isArray(db.last_completed_daily_ids)
         ? db.last_completed_daily_ids
+        : [];
+
+    db.dailies_failed =
+      Number.isFinite(Number(db.dailies_failed))
+        ? Number(db.dailies_failed)
+        : 0;
+
+    db.dailies_snapshot_date =
+      typeof db.dailies_snapshot_date === 'string'
+        ? db.dailies_snapshot_date
+        : '';
+
+    db.dailies_snapshot_due_ids =
+      Array.isArray(db.dailies_snapshot_due_ids)
+        ? db.dailies_snapshot_due_ids
+        : [];
+
+    db.dailies_snapshot_completed_ids =
+      Array.isArray(db.dailies_snapshot_completed_ids)
+        ? db.dailies_snapshot_completed_ids
         : [];
 
     db.last_completed_todo_ids =
@@ -696,6 +727,28 @@ async function generateSVG(webhookEvent = null) {
     db.habit_daily_log =
       db.habit_daily_log.slice(-3);
 
+    // ==========================================
+    // PHASE 3B — HITUNG DAILIES GAGAL HARI SEBELUMNYA
+    // ==========================================
+    // Hanya hitung Dailies yang memang jatuh tempo
+    // pada snapshot hari sebelumnya tetapi tidak selesai.
+    // Ini BUKAN jumlah Dailies yang belum dikerjakan hari ini.
+    if (
+      db.dailies_snapshot_date &&
+      db.dailies_snapshot_date !== todayStr
+    ) {
+      const previousDueIds =
+        new Set(db.dailies_snapshot_due_ids || []);
+
+      const previousCompletedIds =
+        new Set(db.dailies_snapshot_completed_ids || []);
+
+      db.dailies_failed =
+        [...previousDueIds].filter(
+          (id) => !previousCompletedIds.has(id)
+        ).length;
+    }
+
     db.last_daily_date = todayStr;
 
     db.daily_habit_baseline =
@@ -905,11 +958,16 @@ async function generateSVG(webhookEvent = null) {
         )
       : 100;
 
+  // ==========================================
+  // PHASE 3B — DAILIES GAGAL
+  // ==========================================
+  // Gunakan jumlah kegagalan historis yang sudah
+  // dihitung saat pergantian hari, bukan:
+  // due.length - done.length.
   const dailiesGagal =
-    Math.max(
-      0,
-      due.length - done.length
-    );
+    Number.isFinite(Number(db.dailies_failed))
+      ? Number(db.dailies_failed)
+      : 0;
 
   const currentCompletedIds =
     new Set(
@@ -951,6 +1009,14 @@ async function generateSVG(webhookEvent = null) {
   }
 
   db.last_completed_daily_ids =
+    [...currentCompletedIds];
+
+  // Snapshot Dailies hari ini untuk dipakai saat
+  // pergantian hari berikutnya.
+  db.dailies_snapshot_date = todayStr;
+  db.dailies_snapshot_due_ids =
+    due.map((d) => d.id);
+  db.dailies_snapshot_completed_ids =
     [...currentCompletedIds];
 
   const topD =
