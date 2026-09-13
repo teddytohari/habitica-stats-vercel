@@ -107,6 +107,15 @@ function defaultDB() {
     last_daily_date: '',
     daily_habit_baseline: 0,
 
+    // PHASE 3B — DAILIES FAILURE TRACKING
+    // Menyimpan hasil hari yang sudah ditutup.
+    // Nilai DAILIES GAGAL tidak lagi dihitung dari
+    // dailies yang belum dicentang pada hari berjalan.
+    dailies_failed: 0,
+    dailies_snapshot_date: '',
+    dailies_snapshot_due_ids: [],
+    dailies_snapshot_completed_ids: [],
+
     last_quest_key: null,
     last_quest_is_boss: false,
 
@@ -239,6 +248,26 @@ async function loadDB() {
       Array.isArray(db.last_completed_daily_ids)
         ? db.last_completed_daily_ids
         : [];
+
+    db.dailies_snapshot_due_ids =
+      Array.isArray(db.dailies_snapshot_due_ids)
+        ? db.dailies_snapshot_due_ids
+        : [];
+
+    db.dailies_snapshot_completed_ids =
+      Array.isArray(db.dailies_snapshot_completed_ids)
+        ? db.dailies_snapshot_completed_ids
+        : [];
+
+    db.dailies_failed =
+      Number.isFinite(Number(db.dailies_failed))
+        ? Number(db.dailies_failed)
+        : 0;
+
+    db.dailies_snapshot_date =
+      typeof db.dailies_snapshot_date === 'string'
+        ? db.dailies_snapshot_date
+        : '';
 
     db.last_completed_todo_ids =
       Array.isArray(db.last_completed_todo_ids)
@@ -532,6 +561,42 @@ async function generateSVG() {
     db.habit_daily_log =
       db.habit_daily_log.slice(-3);
 
+    // ========================================
+    // PHASE 3B — TUTUP HARI DAILIES
+    // ========================================
+    // Snapshot hari sebelumnya sudah berisi:
+    // - semua Daily yang terdeteksi due
+    // - semua Daily yang sudah selesai
+    //
+    // Jadi kegagalan dihitung saat hari ditutup,
+    // bukan dari kondisi checklist hari berjalan.
+    if (
+      db.dailies_snapshot_date &&
+      db.dailies_snapshot_date !== todayStr
+    ) {
+      const previousDueIds = new Set(
+        db.dailies_snapshot_due_ids || []
+      );
+
+      const previousCompletedIds = new Set(
+        db.dailies_snapshot_completed_ids || []
+      );
+
+      db.dailies_failed = [...previousDueIds].filter(
+        (id) => !previousCompletedIds.has(id)
+      ).length;
+
+      console.log(
+        'PHASE 3B: Daily rollover',
+        {
+          closedDate: db.dailies_snapshot_date,
+          due: previousDueIds.size,
+          completed: previousCompletedIds.size,
+          failed: db.dailies_failed,
+        }
+      );
+    }
+
     db.last_daily_date = todayStr;
 
     db.daily_habit_baseline =
@@ -716,11 +781,16 @@ async function generateSVG() {
         )
       : 100;
 
+  // ==========================================
+  // PHASE 3B — DAILIES GAGAL
+  // ==========================================
+  // Gunakan hasil rollover hari sebelumnya.
+  // Jangan memakai due.length - done.length karena
+  // itu hanya berarti "belum selesai hari ini".
   const dailiesGagal =
-    Math.max(
-      0,
-      due.length - done.length
-    );
+    Number.isFinite(Number(db.dailies_failed))
+      ? Number(db.dailies_failed)
+      : 0;
 
   const currentCompletedIds =
     new Set(
@@ -762,6 +832,15 @@ async function generateSVG() {
   }
 
   db.last_completed_daily_ids =
+    [...currentCompletedIds];
+
+  // Simpan snapshot kondisi Dailies hari berjalan.
+  // Snapshot ini akan dipakai pada rollover berikutnya
+  // untuk menentukan berapa Daily yang benar-benar gagal.
+  db.dailies_snapshot_date = todayStr;
+  db.dailies_snapshot_due_ids =
+    due.map((d) => d.id);
+  db.dailies_snapshot_completed_ids =
     [...currentCompletedIds];
 
   const topD =
