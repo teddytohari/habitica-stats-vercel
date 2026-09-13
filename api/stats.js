@@ -102,21 +102,6 @@ function defaultDB() {
     damage_day_date: '',
     last_damage_up: 0,
 
-    // ==========================================
-    // PHASE 3C — DAMAGE TRACKING 2.0
-    // Event-based cumulative damage ledger.
-    // Tidak memakai quest.progress.up sebagai sumber
-    // damage baru. Sumber event utama adalah payload
-    // Habitica webhook taskActivity/scored.
-    // ==========================================
-    damage2_total: 0,
-    damage2_weekly: 0,
-    damage2_daily: 0,
-    damage2_peak_daily: 0,
-    damage2_day_date: '',
-    damage2_week_id: '',
-    damage2_event_keys: [],
-
     weekly_top_dailies: {},
 
     last_daily_date: '',
@@ -287,31 +272,6 @@ async function loadDB() {
     db.last_completed_todo_ids =
       Array.isArray(db.last_completed_todo_ids)
         ? db.last_completed_todo_ids
-        : [];
-
-    db.damage2_total =
-      Number.isFinite(Number(db.damage2_total))
-        ? Number(db.damage2_total)
-        : Number(db.all_time_damage) || 0;
-
-    db.damage2_weekly =
-      Number.isFinite(Number(db.damage2_weekly))
-        ? Number(db.damage2_weekly)
-        : Number(db.weekly_damage) || 0;
-
-    db.damage2_daily =
-      Number.isFinite(Number(db.damage2_daily))
-        ? Number(db.damage2_daily)
-        : 0;
-
-    db.damage2_peak_daily =
-      Number.isFinite(Number(db.damage2_peak_daily))
-        ? Number(db.damage2_peak_daily)
-        : Number(db.peak_daily_damage) || 0;
-
-    db.damage2_event_keys =
-      Array.isArray(db.damage2_event_keys)
-        ? db.damage2_event_keys
         : [];
 
     debugDbLoad = 'ok';
@@ -535,129 +495,7 @@ async function habiticaFetchJson(url, options = {}) {
 // PEMBUATAN SVG & PENGELOLAAN DATA
 // ==========================================
 
-function getWebhookBody(req) {
-  if (!req || !req.body) {
-    return null;
-  }
-
-  if (typeof req.body === 'object') {
-    return req.body;
-  }
-
-  if (typeof req.body === 'string') {
-    try {
-      return JSON.parse(req.body);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  return null;
-}
-
-function getWebhookDamageEvent(webhookEvent) {
-  if (!webhookEvent || typeof webhookEvent !== 'object') {
-    return null;
-  }
-
-  if (webhookEvent.webhookType !== 'taskActivity') {
-    return null;
-  }
-
-  if (webhookEvent.type !== 'scored') {
-    return null;
-  }
-
-  if (webhookEvent.direction !== 'up') {
-    return null;
-  }
-
-  const progressDelta = Number(
-    webhookEvent.user &&
-    webhookEvent.user._tmp &&
-    webhookEvent.user._tmp.quest &&
-    webhookEvent.user._tmp.quest.progressDelta
-  );
-
-  if (!Number.isFinite(progressDelta) || progressDelta <= 0) {
-    return null;
-  }
-
-  const task = webhookEvent.task || {};
-  const taskId = task.id || task._id || 'unknown-task';
-  const updatedAt = task.updatedAt || '';
-  const delta = Number(webhookEvent.delta) || 0;
-
-  // Fingerprint harus identik pada webhook retry yang sama,
-  // tetapi berubah ketika score event baru terjadi.
-  const eventKey = [
-    webhookEvent.type,
-    webhookEvent.direction,
-    taskId,
-    updatedAt,
-    delta,
-    progressDelta,
-  ].join('|');
-
-  return {
-    eventKey,
-    damage: progressDelta,
-    taskId,
-    taskText: task.text || '',
-    updatedAt,
-  };
-}
-
-function recordDamage2Event(db, webhookEvent) {
-  const event = getWebhookDamageEvent(webhookEvent);
-
-  if (!event) {
-    return {
-      recorded: false,
-      reason: 'not-a-damage-event',
-    };
-  }
-
-  db.damage2_event_keys =
-    Array.isArray(db.damage2_event_keys)
-      ? db.damage2_event_keys
-      : [];
-
-  if (db.damage2_event_keys.includes(event.eventKey)) {
-    return {
-      recorded: false,
-      reason: 'duplicate-event',
-      event,
-    };
-  }
-
-  const damage = event.damage;
-
-  db.damage2_total += damage;
-  db.damage2_weekly += damage;
-  db.damage2_daily += damage;
-
-  if (db.damage2_daily > db.damage2_peak_daily) {
-    db.damage2_peak_daily = db.damage2_daily;
-  }
-
-  db.damage2_event_keys.push(event.eventKey);
-
-  // Simpan window terbatas supaya database tidak tumbuh tanpa batas.
-  db.damage2_event_keys =
-    db.damage2_event_keys.slice(-500);
-
-  console.log(
-    `PHASE 3C DAMAGE EVENT: +${damage} | task=${event.taskId} | total=${db.damage2_total}`
-  );
-
-  return {
-    recorded: true,
-    event,
-  };
-}
-
-async function generateSVG(webhookEvent = null) {
+async function generateSVG() {
   const db = await loadDB();
 
   const now = nowWIB();
@@ -686,8 +524,6 @@ async function generateSVG(webhookEvent = null) {
 
   if (db.current_cycle_id !== cycle) {
     db.weekly_damage = 0;
-    db.damage2_weekly = 0;
-    db.damage2_week_id = cycle;
     db.weekly_top_dailies = {};
     db.weekly_habit_clicks = {};
     db.weekly_habit_neg = {};
@@ -725,14 +561,6 @@ async function generateSVG(webhookEvent = null) {
     db.habit_daily_log =
       db.habit_daily_log.slice(-3);
 
-    db.last_daily_date = todayStr;
-
-    db.daily_habit_baseline =
-      db.all_time_habits_pos;
-
-    db.today_habit_clicks = {};
-    db.today_habit_neg = {};
-
     // ========================================
     // PHASE 3B — TUTUP HARI DAILIES
     // ========================================
@@ -768,6 +596,14 @@ async function generateSVG(webhookEvent = null) {
         }
       );
     }
+
+    db.last_daily_date = todayStr;
+
+    db.daily_habit_baseline =
+      db.all_time_habits_pos;
+
+    db.today_habit_clicks = {};
+    db.today_habit_neg = {};
   }
 
   if (db.damage_day_date !== todayStr) {
@@ -781,21 +617,6 @@ async function generateSVG(webhookEvent = null) {
 
     db.damage_day_date = todayStr;
     db.current_day_damage = 0;
-  }
-
-  // PHASE 3C daily rollover.
-  if (db.damage2_day_date !== todayStr) {
-    if (db.damage2_daily > db.damage2_peak_daily) {
-      db.damage2_peak_daily = db.damage2_daily;
-    }
-
-    db.damage2_day_date = todayStr;
-    db.damage2_daily = 0;
-  }
-
-  if (db.damage2_week_id !== cycle) {
-    db.damage2_week_id = cycle;
-    db.damage2_weekly = 0;
   }
 
   // ==========================================
@@ -848,16 +669,6 @@ async function generateSVG(webhookEvent = null) {
 
   const partyData =
     pResRaw.data || {};
-
-  // ==========================================
-  // PHASE 3C — EVENT-BASED DAMAGE LEDGER
-  // ==========================================
-  // Hanya webhook event yang boleh menambah damage2.
-  // GET /api/stats tidak pernah menambah damage2,
-  // sehingga refresh/GET berulang tidak menggandakan damage.
-  if (webhookEvent) {
-    recordDamage2Event(db, webhookEvent);
-  }
 
   // ==========================================
   // PLAYER
@@ -1434,7 +1245,7 @@ async function generateSVG(webhookEvent = null) {
     );
 
   const avgDmg =
-    db.damage2_weekly / days;
+    db.weekly_damage / days;
 
   // ==========================================
   // BACA QUOTE LOKAL
@@ -1521,13 +1332,13 @@ async function generateSVG(webhookEvent = null) {
 
       `⚡ **Streak:** ${streak} hari • ` +
       `💰 **Peak Gold:** ${fmt(db.peak_gold)} G • ` +
-      `🗡️ **Peak Dmg/Hari:** ${fmt(db.damage2_peak_daily)}\n\n` +
+      `🗡️ **Peak Dmg/Hari:** ${fmt(db.peak_daily_damage)}\n\n` +
 
       `---\n` +
 
       `🔴 **COMBAT & EXPEDITION**\n` +
-      `- Total Damage (All-Time): **${fmt(db.damage2_total)}**\n` +
-      `- Weekly Damage: **${fmt(db.damage2_weekly)}**\n` +
+      `- Total Damage (All-Time): **${fmt(db.all_time_damage)}**\n` +
+      `- Weekly Damage: **${fmt(db.weekly_damage)}**\n` +
       `- Bosses Slain: **${db.bosses_slain}**\n` +
       `- Buffs Cast: **${db.buffs_cast}** • ` +
       `Mana Spent: **${fmt(db.total_mana_spent)} MP**\n\n` +
@@ -2438,7 +2249,7 @@ async function generateSVG(webhookEvent = null) {
       y="207"
       class="v"
     >
-      ${fmt(db.damage2_total)}
+      ${fmt(db.all_time_damage)}
     </text>
 
     <rect
@@ -2470,7 +2281,7 @@ async function generateSVG(webhookEvent = null) {
       y="207"
       class="v"
     >
-      ${fmt(db.damage2_weekly)}
+      ${fmt(db.weekly_damage)}
     </text>
 
     <rect
@@ -2534,7 +2345,7 @@ async function generateSVG(webhookEvent = null) {
       y="261"
       class="v"
     >
-      ${fmt(db.damage2_peak_daily)}
+      ${fmt(db.peak_daily_damage)}
     </text>
 
     <rect
@@ -3448,26 +3259,7 @@ module.exports = async (req, res) => {
     if (isWebhook) {
       console.log('PHASE 3A: Habitica webhook diterima');
 
-      const webhookEvent = getWebhookBody(req);
-
-      if (webhookEvent) {
-        console.log(
-          'PHASE 3C: webhook event diterima',
-          JSON.stringify({
-            type: webhookEvent.type,
-            webhookType: webhookEvent.webhookType,
-            direction: webhookEvent.direction,
-            taskId: webhookEvent.task && (webhookEvent.task.id || webhookEvent.task._id),
-            progressDelta:
-              webhookEvent.user &&
-              webhookEvent.user._tmp &&
-              webhookEvent.user._tmp.quest &&
-              webhookEvent.user._tmp.quest.progressDelta,
-          })
-        );
-      }
-
-      await generateSVG(webhookEvent);
+      await generateSVG();
 
       res.setHeader('Content-Type', 'application/json');
       res.status(200).json({
