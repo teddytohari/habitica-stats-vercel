@@ -103,11 +103,10 @@ function defaultDB() {
     last_damage_up: 0,
 
     // ==========================================
-    // PHASE 3C — DAMAGE TRACKING 2.0
-    // Event-based cumulative damage ledger.
-    // Tidak memakai quest.progress.up sebagai sumber
-    // damage baru. Sumber event utama adalah payload
-    // Habitica webhook taskActivity/scored.
+    // PHASE 3C 3.0 — PENDING DAMAGE TRACKER
+    // Pending damage di Habitica menjadi sumber utama.
+    // Webhook hanya menjadi trigger/observasi dan tidak
+    // menambahkan damage secara langsung.
     // ==========================================
     damage2_total: 0,
     damage2_weekly: 0,
@@ -116,6 +115,11 @@ function defaultDB() {
     damage2_day_date: '',
     damage2_week_id: '',
     damage2_event_keys: [],
+
+    damage2_initialized: false,
+    damage2_last_quest_key: null,
+    damage2_last_quest_active: false,
+    damage2_last_pending_damage: 0,
 
     weekly_top_dailies: {},
 
@@ -315,6 +319,21 @@ async function loadDB() {
       Array.isArray(db.damage2_event_keys)
         ? db.damage2_event_keys
         : [];
+
+    db.damage2_initialized = Boolean(db.damage2_initialized);
+
+    db.damage2_last_quest_key =
+      typeof db.damage2_last_quest_key === 'string'
+        ? db.damage2_last_quest_key
+        : null;
+
+    db.damage2_last_quest_active =
+      Boolean(db.damage2_last_quest_active);
+
+    db.damage2_last_pending_damage =
+      Number.isFinite(Number(db.damage2_last_pending_damage))
+        ? Number(db.damage2_last_pending_damage)
+        : 0;
 
     debugDbLoad = 'ok';
 
@@ -610,52 +629,147 @@ function getWebhookDamageEvent(webhookEvent) {
   };
 }
 
-function recordDamage2Event(db, webhookEvent) {
-  const event = getWebhookDamageEvent(webhookEvent);
-
-  if (!event) {
+function recordWebhookObservation(db, webhookEvent) {
+  if (!webhookEvent || typeof webhookEvent !== 'object') {
     return {
-      recorded: false,
-      reason: 'not-a-damage-event',
+      observed: false,
+      reason: 'no-webhook',
     };
   }
-
-  db.damage2_event_keys =
-    Array.isArray(db.damage2_event_keys)
-      ? db.damage2_event_keys
-      : [];
-
-  if (db.damage2_event_keys.includes(event.eventKey)) {
-    return {
-      recorded: false,
-      reason: 'duplicate-event',
-      event,
-    };
-  }
-
-  const damage = event.damage;
-
-  db.damage2_total += damage;
-  db.damage2_weekly += damage;
-  db.damage2_daily += damage;
-
-  if (db.damage2_daily > db.damage2_peak_daily) {
-    db.damage2_peak_daily = db.damage2_daily;
-  }
-
-  db.damage2_event_keys.push(event.eventKey);
-
-  // Simpan window terbatas supaya database tidak tumbuh tanpa batas.
-  db.damage2_event_keys =
-    db.damage2_event_keys.slice(-500);
 
   console.log(
-    `PHASE 3C DAMAGE EVENT: +${damage} | task=${event.taskId} | total=${db.damage2_total}`
+    'PHASE 3C: webhook observation',
+    JSON.stringify({
+      type: webhookEvent.type,
+      webhookType: webhookEvent.webhookType,
+      direction: webhookEvent.direction,
+      taskId:
+        webhookEvent.task &&
+        (webhookEvent.task.id || webhookEvent.task._id),
+    })
   );
 
   return {
-    recorded: true,
-    event,
+    observed: true,
+  };
+}
+
+function recordPendingDamage(db, uData) {
+  const quest = (uData.party || {}).quest || {};
+  const progress = quest.progress || {};
+  const questKey = quest.key || null;
+  const questActive = !!quest.active;
+
+  const pendingDamageRaw = Number(progress.up);
+  const pendingDamage =
+    Number.isFinite(pendingDamageRaw) && pendingDamageRaw > 0
+      ? pendingDamageRaw
+      : 0;
+
+  // First run: establish a baseline. Existing pending damage from
+  // before this tracker was installed must not be counted retroactively.
+  if (!db.damage2_initialized) {
+    db.damage2_initialized = true;
+    db.damage2_last_quest_key = questActive ? questKey : null;
+    db.damage2_last_quest_active = questActive;
+    db.damage2_last_pending_damage = questActive
+      ? pendingDamage
+      : 0;
+
+    console.log(
+      'PHASE 3C: pending damage tracker initialized',
+      JSON.stringify({
+        questKey,
+        questActive,
+        pendingDamage,
+      })
+    );
+
+    return {
+      recorded: false,
+      initialized: true,
+      pendingDamage,
+      delta: 0,
+    };
+  }
+
+  // No active quest: clear the baseline so a later quest can start cleanly.
+  if (!questActive) {
+    db.damage2_last_quest_key = null;
+    db.damage2_last_quest_active = false;
+    db.damage2_last_pending_damage = 0;
+
+    return {
+      recorded: false,
+      reason: 'quest-inactive',
+      pendingDamage,
+      delta: 0,
+    };
+  }
+
+  let delta = 0;
+
+  const sameQuest =
+    db.damage2_last_quest_active &&
+    db.damage2_last_quest_key === questKey;
+
+  if (!sameQuest) {
+    // New quest: all current pending damage belongs to this new quest segment.
+    delta = pendingDamage;
+  } else if (pendingDamage >= db.damage2_last_pending_damage) {
+    // Same quest, pending damage increased.
+    delta =
+      pendingDamage -
+      db.damage2_last_pending_damage;
+  } else {
+    // Pending damage dropped/reset, normally because Cron applied it.
+    // Never subtract damage from the ledger. Rebase to the new pending value.
+    delta = pendingDamage;
+  }
+
+  if (delta > 0) {
+    db.damage2_total += delta;
+    db.damage2_weekly += delta;
+    db.damage2_daily += delta;
+
+    if (db.damage2_daily > db.damage2_peak_daily) {
+      db.damage2_peak_daily = db.damage2_daily;
+    }
+
+    console.log(
+      'PHASE 3C: pending damage recorded',
+      JSON.stringify({
+        questKey,
+        pendingDamage,
+        previousPendingDamage:
+          db.damage2_last_pending_damage,
+        delta,
+        total: db.damage2_total,
+      })
+    );
+  } else {
+    console.log(
+      'PHASE 3C: pending damage checked',
+      JSON.stringify({
+        questKey,
+        pendingDamage,
+        previousPendingDamage:
+          db.damage2_last_pending_damage,
+        delta: 0,
+        total: db.damage2_total,
+      })
+    );
+  }
+
+  db.damage2_last_quest_key = questKey;
+  db.damage2_last_quest_active = true;
+  db.damage2_last_pending_damage = pendingDamage;
+
+  return {
+    recorded: delta > 0,
+    initialized: false,
+    pendingDamage,
+    delta,
   };
 }
 
@@ -743,10 +857,13 @@ async function generateSVG(webhookEvent = null) {
       const previousCompletedIds =
         new Set(db.dailies_snapshot_completed_ids || []);
 
-      db.dailies_failed =
+      const failedYesterday =
         [...previousDueIds].filter(
           (id) => !previousCompletedIds.has(id)
         ).length;
+
+      // Dailies Gagal bersifat cumulative.
+      db.dailies_failed += failedYesterday;
     }
 
     db.last_daily_date = todayStr;
@@ -838,13 +955,13 @@ async function generateSVG(webhookEvent = null) {
     pResRaw.data || {};
 
   // ==========================================
-  // PHASE 3C — EVENT-BASED DAMAGE LEDGER
+  // PHASE 3C 3.0 — WEBHOOK OBSERVATION
   // ==========================================
-  // Hanya webhook event yang boleh menambah damage2.
-  // GET /api/stats tidak pernah menambah damage2,
-  // sehingga refresh/GET berulang tidak menggandakan damage.
+  // Webhook tidak menambahkan damage secara langsung.
+  // Pending damage dari user.party.quest.progress.up
+  // menjadi sumber angka damage yang dicatat.
   if (webhookEvent) {
-    recordDamage2Event(db, webhookEvent);
+    recordWebhookObservation(db, webhookEvent);
   }
 
   // ==========================================
@@ -931,6 +1048,13 @@ async function generateSVG(webhookEvent = null) {
   }
   db.last_quest_key = questActiveNow ? questKeyNow : null;
   db.last_quest_is_boss = questActiveNow ? isBossNow : false;
+
+  // ==========================================
+  // PHASE 3C 3.0 — PENDING DAMAGE
+  // ==========================================
+  // Jalankan setelah data Habitica terbaru dibaca.
+  // Refresh/GET berulang aman karena yang dicatat hanya delta.
+  recordPendingDamage(db, uData);
 
   // ==========================================
   // DAILY
