@@ -654,17 +654,50 @@ function recordWebhookObservation(db, webhookEvent) {
   };
 }
 
-function recordPendingDamage(db, uData) {
-  const quest = (uData.party || {}).quest || {};
-  const progress = quest.progress || {};
-  const questKey = quest.key || null;
-  const questActive = !!quest.active;
+function recordPendingDamage(db, uData, partyData) {
+  // Habitica memiliki dua representasi data quest di endpoint yang kita baca:
+  // - /user: dipakai untuk membaca personal pending damage (progress.up)
+  // - /groups/party: dipakai sebagai source of truth untuk status/key quest
+  //
+  // Sebelumnya status active/key dibaca dari /user saja. Pada kondisi tertentu
+  // field tersebut tidak merefleksikan status quest party, sehingga tracker
+  // berhenti di branch "quest-inactive" walaupun quest sebenarnya aktif.
+  const userQuest = (uData.party || {}).quest || {};
+  const partyQuest = (partyData || {}).quest || {};
+
+  const progress = userQuest.progress || {};
+
+  const hasPartyQuestState =
+    typeof partyQuest.active === 'boolean' ||
+    typeof partyQuest.key === 'string';
+
+  const questKey = hasPartyQuestState
+    ? (partyQuest.key || null)
+    : (userQuest.key || null);
+
+  const questActive = hasPartyQuestState
+    ? !!partyQuest.active
+    : !!userQuest.active;
 
   const pendingDamageRaw = Number(progress.up);
   const pendingDamage =
     Number.isFinite(pendingDamageRaw) && pendingDamageRaw > 0
       ? pendingDamageRaw
       : 0;
+
+  console.log(
+    'PHASE 3C: quest source',
+    JSON.stringify({
+      source: hasPartyQuestState ? 'party' : 'user-fallback',
+      partyQuestActive: !!partyQuest.active,
+      partyQuestKey: partyQuest.key || null,
+      userQuestActive: !!userQuest.active,
+      userQuestKey: userQuest.key || null,
+      questActive,
+      questKey,
+      pendingDamage,
+    })
+  );
 
   // First run: establish a baseline. Existing pending damage from
   // before this tracker was installed must not be counted retroactively.
@@ -1054,7 +1087,7 @@ async function generateSVG(webhookEvent = null) {
   // ==========================================
   // Jalankan setelah data Habitica terbaru dibaca.
   // Refresh/GET berulang aman karena yang dicatat hanya delta.
-  recordPendingDamage(db, uData);
+  recordPendingDamage(db, uData, partyData);
 
   // ==========================================
   // DAILY
