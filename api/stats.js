@@ -103,7 +103,7 @@ function defaultDB() {
     last_damage_up: 0,
 
     // ==========================================
-    // PHASE 3C 3.0 — PENDING DAMAGE TRACKER
+    // PHASE 3C 3.2 — PENDING DAMAGE + ACTIVE DAMAGE DAYS TRACKER
     // Pending damage di Habitica menjadi sumber utama.
     // Webhook hanya menjadi trigger/observasi dan tidak
     // menambahkan damage secara langsung.
@@ -115,6 +115,11 @@ function defaultDB() {
     damage2_day_date: '',
     damage2_week_id: '',
     damage2_event_keys: [],
+
+    // Jumlah hari dalam minggu berjalan ketika damage > 0.
+    damage2_active_days: 0,
+    // Penanda agar satu hari hanya dihitung sekali.
+    damage2_day_has_damage: false,
 
     damage2_initialized: false,
     damage2_last_quest_key: null,
@@ -309,6 +314,23 @@ async function loadDB() {
       Number.isFinite(Number(db.damage2_daily))
         ? Number(db.damage2_daily)
         : 0;
+
+    // Migrasi aman: jika field baru belum ada, infer dari damage harian
+    // yang sudah tersimpan agar statistik lama tidak berubah menjadi 0.
+    if (Number.isFinite(Number(db.damage2_active_days))) {
+      db.damage2_active_days = Math.max(
+        0,
+        Math.floor(Number(db.damage2_active_days))
+      );
+    } else {
+      db.damage2_active_days =
+        db.damage2_daily > 0 ? 1 : 0;
+    }
+
+    if (typeof db.damage2_day_has_damage !== 'boolean') {
+      db.damage2_day_has_damage =
+        db.damage2_daily > 0;
+    }
 
     db.damage2_peak_daily =
       Number.isFinite(Number(db.damage2_peak_daily))
@@ -765,6 +787,13 @@ function recordPendingDamage(db, uData, partyData) {
     db.damage2_weekly += delta;
     db.damage2_daily += delta;
 
+    // Daily Avg hanya menghitung hari yang benar-benar menghasilkan damage.
+    // Satu hari hanya boleh menambah counter satu kali.
+    if (!db.damage2_day_has_damage) {
+      db.damage2_active_days += 1;
+      db.damage2_day_has_damage = true;
+    }
+
     if (db.damage2_daily > db.damage2_peak_daily) {
       db.damage2_peak_daily = db.damage2_daily;
     }
@@ -836,6 +865,8 @@ async function generateSVG(webhookEvent = null) {
   if (db.current_cycle_id !== cycle) {
     db.weekly_damage = 0;
     db.damage2_weekly = 0;
+    db.damage2_active_days = 0;
+    db.damage2_day_has_damage = false;
     db.damage2_week_id = cycle;
     db.weekly_top_dailies = {};
     db.weekly_habit_clicks = {};
@@ -921,7 +952,7 @@ async function generateSVG(webhookEvent = null) {
     db.current_day_damage = 0;
   }
 
-  // PHASE 3C daily rollover.
+  // PHASE 3C daily rollover + active-day tracking.
   if (db.damage2_day_date !== todayStr) {
     if (db.damage2_daily > db.damage2_peak_daily) {
       db.damage2_peak_daily = db.damage2_daily;
@@ -929,11 +960,15 @@ async function generateSVG(webhookEvent = null) {
 
     db.damage2_day_date = todayStr;
     db.damage2_daily = 0;
+    db.damage2_day_has_damage = false;
   }
 
   if (db.damage2_week_id !== cycle) {
     db.damage2_week_id = cycle;
     db.damage2_weekly = 0;
+    db.damage2_daily = 0;
+    db.damage2_active_days = 0;
+    db.damage2_day_has_damage = false;
   }
 
   // ==========================================
@@ -1565,20 +1600,13 @@ async function generateSVG(webhookEvent = null) {
       0
     );
 
-  const days =
-    Math.max(
-      1,
-      Math.floor(
-        (
-          dateOnly(adjusted) -
-          weekStartDate
-        ) /
-          86400000
-      ) + 1
-    );
-
+  // DAILY AVG DMG = rata-rata hanya pada hari yang benar-benar
+  // menghasilkan damage pada minggu berjalan. Hari dengan 0 damage
+  // tidak ikut menjadi pembagi.
   const avgDmg =
-    db.damage2_weekly / days;
+    db.damage2_active_days > 0
+      ? db.damage2_weekly / db.damage2_active_days
+      : 0;
 
   // ==========================================
   // BACA QUOTE LOKAL
