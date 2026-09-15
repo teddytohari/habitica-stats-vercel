@@ -103,7 +103,7 @@ function defaultDB() {
     last_damage_up: 0,
 
     // ==========================================
-    // PHASE 3C 3.2 — PENDING DAMAGE + ACTIVE DAMAGE DAYS TRACKER
+    // PHASE 3C 3.3 — PENDING DAMAGE + ACTIVE DAMAGE DAYS TRACKER
     // Pending damage di Habitica menjadi sumber utama.
     // Webhook hanya menjadi trigger/observasi dan tidak
     // menambahkan damage secara langsung.
@@ -764,21 +764,33 @@ function recordPendingDamage(db, uData, partyData) {
 
   let delta = 0;
 
-  const sameQuest =
-    db.damage2_last_quest_active &&
-    db.damage2_last_quest_key === questKey;
+  const previousPendingDamage =
+    Number.isFinite(Number(db.damage2_last_pending_damage)) &&
+    Number(db.damage2_last_pending_damage) >= 0
+      ? Number(db.damage2_last_pending_damage)
+      : 0;
 
-  if (!sameQuest) {
-    // New quest: all current pending damage belongs to this new quest segment.
-    delta = pendingDamage;
-  } else if (pendingDamage >= db.damage2_last_pending_damage) {
-    // Same quest, pending damage increased.
-    delta =
-      pendingDamage -
-      db.damage2_last_pending_damage;
+  /*
+   * PHASE 3C 3.3 — DAMAGE LEDGER RULE
+   *
+   * Pending Damage adalah meter kumulatif sementara milik Habitica.
+   * Pergantian quest TIDAK otomatis berarti ada damage baru.
+   *
+   * Contoh:
+   *   8000 -> quest berganti -> 8000  = +0
+   *   8000 -> 8300                  = +300
+   *   8300 -> quest berganti -> 8300 = +0
+   *
+   * Jika pending turun, anggap Habitica telah mereset/menerapkan
+   * pending damage (misalnya saat Cron). Kita tidak mengurangi ledger;
+   * nilai pending yang sekarang menjadi baseline baru.
+   */
+  if (pendingDamage >= previousPendingDamage) {
+    delta = pendingDamage - previousPendingDamage;
   } else {
-    // Pending damage dropped/reset, normally because Cron applied it.
-    // Never subtract damage from the ledger. Rebase to the new pending value.
+    // Pending turun/reset: jangan kurangi total.
+    // Nilai sekarang dianggap damage baru yang sudah terkumpul
+    // setelah reset.
     delta = pendingDamage;
   }
 
@@ -803,8 +815,7 @@ function recordPendingDamage(db, uData, partyData) {
       JSON.stringify({
         questKey,
         pendingDamage,
-        previousPendingDamage:
-          db.damage2_last_pending_damage,
+        previousPendingDamage,
         delta,
         total: db.damage2_total,
       })
@@ -815,8 +826,7 @@ function recordPendingDamage(db, uData, partyData) {
       JSON.stringify({
         questKey,
         pendingDamage,
-        previousPendingDamage:
-          db.damage2_last_pending_damage,
+        previousPendingDamage,
         delta: 0,
         total: db.damage2_total,
       })
